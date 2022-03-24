@@ -1,0 +1,209 @@
+singleuser:
+  image:
+    name: pythoncharmers/jupyter-docker-stacks
+    tag: 6a6ef3eaa02d
+  # memory:
+  #   guarantee: 6G
+  #   limit: 8G
+  defaultUrl: "/lab"
+  storage:
+    # type: "static"
+    # static:
+    #   pvcName: "efs-persist"
+    #   subPath: "home/{username}"
+    type: none
+    extraVolumes:
+      - name: efs-persist
+        persistentVolumeClaim:
+          claimName: efs-persist
+
+    extraVolumeMounts:
+      - name: efs-persist
+        mountPath: /home/jovyan
+        subPath: 'Transcripts/{username}'
+      - name: efs-persist
+        mountPath: /home/data
+        subPath: 'Data'
+      - name: efs-persist
+        mountPath: /home/shared
+        subPath: 'Transcripts'
+  extraEnv:
+    CHOWN_HOME: "yes"
+  uid: 0
+  fsGid: 0
+  cmd: "start-singleuser.sh"
+
+hub:
+  extraVolumes:
+    - name: efs-persist
+      persistentVolumeClaim:
+        claimName: efs-persist
+  extraVolumeMounts:
+    - name: efs-persist
+      mountPath: /efs
+  initContainers:
+    - name: efs-fixer
+      image: alpine
+      securityContext:
+        runAsUser: 0
+      volumeMounts:
+        - name: efs-persist
+          mountPath: /efs
+      command:
+      - sh
+      - -c
+      - (mkdir -p /efs/Transcripts; mkdir -p /efs/Data; chmod 0775 /efs; chown -R 1000:100 /efs)
+  config:
+    JupyterHub:
+      authenticator_class: nativeauthenticator.NativeAuthenticator
+    Authenticator:
+      admin_access: true
+      admin_users:
+        - "errol@pythoncharmers.com"
+        - "ed@pythoncharmers.com"
+        - "robert@pythoncharmers.com"
+        - "henry@pythoncharmers.com"
+    NativeAuthenticator:
+      # enable_signup: false
+      minimum_password_length: 8
+      check_common_password: true
+      ask_email_on_signup: false
+      allow_2fa: false
+  extraConfig:
+    my_config.py: |
+      from nativeauthenticator.nativeauthenticator import (
+        NativeAuthenticator, bcrypt)
+      from nativeauthenticator.handlers import (
+          LocalBase, admin_only, UserInfo, web)
+
+
+      class AdminUserSignUpHandler(LocalBase):
+          """admin API for adding users"""
+
+          # this will be deprecated in jupyterhub 2.X,
+          # which will have more flexible roles
+          @admin_only
+          async def post(self):
+
+              username = self.get_body_argument('username', strip=False)
+
+              # could add "is_authorized": True ... no need to authorize
+              user_info = {
+                  'username': username,
+                  'pw': self.get_body_argument('pw', strip=False),
+                  'is_authorized': True  # this is trusting API, authorize straight away
+              }
+
+              taken = self.authenticator.user_exists(user_info['username'])
+              # custom create user function `admin_create_user`
+              user = self.authenticator.admin_create_user(**user_info)
+
+              message = self.authenticator.create_message(taken, username, user)
+
+              self.finish(message)
+
+
+      class AdminSignUpHandler(AdminUserSignUpHandler):
+          '''Allow signup for admin when no signup allowed
+          '''
+
+          async def post(self):
+
+              username = self.get_body_argument('username', strip=False)
+
+              # override default behaviour only under these conditions
+              username_is_admin = username in self.admin_users
+              taken = self.authenticator.user_exists(username)
+              special_case = (
+                  # else, just use normal interface
+                  (not self.authenticator.enable_signup) and
+                  (username_is_admin) and
+                  # only allow admin signup once!
+                  (not taken)
+                  )
+
+              self.log.info(f'Admin signup ... special case: {special_case}')
+              self.log.info(f'(is admin: {username_is_admin}, taken: {taken})')
+
+              if special_case:
+                  # await super().post()
+
+                  user_info = {
+                      'username': username,
+                      'pw': self.get_body_argument('pw', strip=False),
+                      'is_authorized': True
+                  }
+
+                  # custom create user function `admin_create_user`
+                  user = self.authenticator.admin_create_user(**user_info)
+                  message = self.authenticator.create_message(taken, username, user)
+
+                  self.finish(message)
+              else:
+                  raise web.HTTPError(404)
+
+
+      class AdminNativeAuthenticator(NativeAuthenticator):
+
+          def get_handlers(self, app):
+              # hope this super call works!
+              handlers = super().get_handlers(app)
+              handlers.append(
+                  (r'/admin-signup', AdminSignUpHandler))
+              handlers.append(
+                  (r'/admin-user-signup', AdminUserSignUpHandler))
+
+              return handlers
+
+          def create_message(self, taken, username, user):
+              "Create dictionary message for use in lightweight admin API"
+              if taken:
+                  message = {
+                      'message': "Username {} is taken".format(username),
+                      'status': 'taken'
+                      }
+              elif user:
+                  message = {
+                      # presuming user is a UserInfo object as all other are None
+                      'message': 'Username {} has been added'.format(user.username),
+                      'status': 'success'
+                      }
+              else:
+                  message = {
+                      'message': "Error, username {} not added".format(username),
+                      'status': 'error'
+                      }
+
+              return message
+
+          def admin_create_user(self, username, pw, **kwargs):
+              """Simple direct user creation for trustworthy/admin caller
+              """
+              # at this stage ... just lowercase
+              # NativeAuthenticator and base Authenticator just lower ... could add more
+              username = self.normalize_username(username)
+
+              encoded_pw = bcrypt.hashpw(pw.encode(), bcrypt.gensalt())
+              infos = {'username': username, 'password': encoded_pw}
+              infos.update(kwargs)
+
+              try:
+                  user_info = UserInfo(**infos)
+              except AssertionError:
+                  return
+
+              self.db.add(user_info)
+              self.db.commit()
+              return user_info
+
+
+      # perhaps needs to be updated
+      c.JupyterHub.authenticator_class = AdminNativeAuthenticator
+      # c.JupyterHub.authenticator_class = 'nativeauthenticator.NativeAuthenticator'
+
+      # no signup ... how admin login?
+      c.Authenticator.enable_signup = False
+      # c.Authenticator.enable_signup = True
+
+      c.Authenticator.admin_users = {'errollloyd'}
+
