@@ -33,6 +33,13 @@ singleuser:
   fsGid: 0
   cmd: "start-singleuser.sh"
 
+proxy:
+  https:
+    enabled: true
+    hosts:
+      - hub.datacharmers.com
+    letsencrypt:
+      contactEmail: errol@pythoncharmers.com
 hub:
   extraVolumes:
     - name: efs-persist
@@ -63,6 +70,14 @@ hub:
         - "ed@pythoncharmers.com"
         - "robert@pythoncharmers.com"
         - "henry@pythoncharmers.com"
+        - "sue@pythoncharmers.com"
+        - "bianca@pythoncharmers.com"
+        - "errol@datacharmers.com"
+        - "ed@datacharmers.com"
+        - "robert@datacharmers.com"
+        - "henry@datacharmers.com"
+        - "sue@datacharmers.com"
+        - "bianca@datacharmers.com"
     NativeAuthenticator:
       # enable_signup: false
       minimum_password_length: 8
@@ -71,6 +86,8 @@ hub:
       allow_2fa: false
   extraConfig:
     my_config.py: |
+      import json
+
       from nativeauthenticator.nativeauthenticator import (
         NativeAuthenticator, bcrypt)
       from nativeauthenticator.handlers import (
@@ -85,12 +102,32 @@ hub:
           @admin_only
           async def post(self):
 
-              username = self.get_body_argument('username', strip=False)
+              # self.log.info(f'full request:  {self.request}, {self.request.body}')
+              # for when expecting JSON only
 
-              # could add "is_authorized": True ... no need to authorize
+              # req_body = self.request.body
+              # if isinstance(req_body, bytes):
+              #   req_body = req_body.decode()
+
+              # req_args = json.loads(req_body)
+
+              # if 'username' not in req_args:
+              #   raise web.HTTPError(400, reason='No username')
+              # else:
+              #   username = req_args['username']
+
+              # if 'pw' not in req_args:
+              #   raise web.HTTPError(400, reason='No password')
+              # else:
+              #   pw = req_args['pw']
+
+              # expecting form encoded data (ie, use data in requests.post())
+              username = self.get_body_argument('username', strip=False)
+              pw = self.get_body_argument('pw', strip=False)
+
               user_info = {
                   'username': username,
-                  'pw': self.get_body_argument('pw', strip=False),
+                  'pw': pw,
                   'is_authorized': True  # this is trusting API, authorize straight away
               }
 
@@ -121,7 +158,7 @@ hub:
                   # only allow admin signup once!
                   (not taken)
                   )
-
+              self.log.info(f'Admin_users: {self.admin_users}')
               self.log.info(f'Admin signup ... special case: {special_case}')
               self.log.info(f'(is admin: {username_is_admin}, taken: {taken})')
 
@@ -197,13 +234,12 @@ hub:
               return user_info
 
 
-      # perhaps needs to be updated
+      # use custom authenticator
       c.JupyterHub.authenticator_class = AdminNativeAuthenticator
-      # c.JupyterHub.authenticator_class = 'nativeauthenticator.NativeAuthenticator'
 
-      # no signup ... how admin login?
+      # no signup ... all logins, including initial admin signup, must be through API
       c.Authenticator.enable_signup = False
-      # c.Authenticator.enable_signup = True
 
-      c.Authenticator.admin_users = {'errollloyd'}
+      # just rely on config above ... WARNING ... this will override any config above!
+      # c.Authenticator.admin_users = {'errollloyd'}
 
