@@ -16,6 +16,7 @@
 
 # tag key for marking resources created specifically for the cluster
 cluster_resource_key='charmers-cluster-id'
+helm_chart_config_file='config.yaml'
 
 # > Help function
 
@@ -23,11 +24,11 @@ gjc_help(){
 	printf "
 Help with Generic Jupyterhub Cluster!
 
-Some functions will provide speicific help with argument: -h
+Most functions will provide speicific help with argument: -h
 
 * Make sure you're using the right aws profile:
 	gjc_aws_profile_default_print ...\t print current
-	gjc_aws_profile_list ... \t\t print all in config
+	gjc_aws_profile_list ... \t\t list all in config
 	gjc_aws_profile_default_set ... \t set default profile to one from list
 
 * create a cluster!:
@@ -47,11 +48,16 @@ Some functions will provide speicific help with argument: -h
 	gjc_helm_jupyterhub_chart_version_get
 	gjc_helm_jupyterhub_chart_version_set
 
+* Add the admin users
+	gjc_cluster_admin_users_get ... \t\t Check that admin usernames extracted correctly
+	gjc_cluster_auth_admin_accounts_add ... \t add admin users with provided password
+		If using HTTPS (which is likely, you will need to provide the url ... see help with -h)
+
 * Get the URL
 	gjc_cluster_url ... \t prints the public url of the jupyterhub server
 							(unless DNS records are used)
-
 	"
+
 	return 0
 }
 
@@ -252,8 +258,26 @@ alias kb_pods_list='kubectl get pod'
 
 alias kb_pods_watch='kubectl get pod --watch'
 
+alias kb_nodes_list='kubectl get node'
+
+kb_pods_list_by_node(){
+	kubectl get pod -o wide | awk 'NR>1{ print $1, $7, $5}' | sort -k 2 | rs _ 3
+}
+
+alias kb_nodes_watch='kubectl get node --watch'
+
 alias kb_hubpod_logs='kubectl logs -f $(kb_hubpod_get_name)'
 
+kb_scale_replicas(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Set the number of user placeholders pods with arg: n (a number)
+		"
+		return 0
+	fi
+
+	kubectl scale statefulsets/user-placeholder --replicas=$1
+}
 
 # > eksctl functions
 
@@ -409,7 +433,18 @@ gjc_efs_create(){
 
 	if [ "$1" = "-h" ]; then
 		printf "
-	Doc string
+	Creates an EFS in the VPC of the current cluster
+
+	Also creates additional resources to allow for the EFS to be mounted within the cluster:
+		* security group with NFS ingress rules allowing ingress from cluster security groups
+		* Mount targets for the EFS in the cluster's VPC's private subnets
+
+	All resources are tagged with $cluster_resource_key:"CLUSTER_NAME" for future queries,
+	relied on largely by gjc_cluster_tear_down to selectively remove them before deleting
+	the cluster.
+
+	The key ... $cluster_resource_key ... is defined as a global in this script.
+
 		"
 		return 0
 	fi
@@ -442,7 +477,7 @@ gjc_efs_create(){
 
 	# >> Create a security group
 
-	security_group_id=$(aws ec2 create-security-group \
+	local security_group_id=$(aws ec2 create-security-group \
 		--group-name cluster_efs_sg \
 		--description "sg for cluster efs io" \
 		--vpc-id $vpc_id \
@@ -469,7 +504,7 @@ gjc_efs_create(){
 	# assign each sg to a bash string array and then loop through
 
 	# capture output text and convert to bash array
-	ingress_sgs=( $(aws ec2 describe-security-groups \
+	local ingress_sgs=( $(aws ec2 describe-security-groups \
 		--query "SecurityGroups[?GroupId=='$cluster_sg'].IpPermissions[].UserIdGroupPairs[].GroupId" \
 		--output text) )
 	gjc_utils_check_exit_code "Failed to get ingress rules from $cluster_sg" || return 1
@@ -722,7 +757,7 @@ gjc_helm_chart_deploy(){
 	local chart_version=$(gjc_helm_jupyterhub_chart_version_get)
 	local cluster_name=$(gjc_cluster_name_get)
 
-	echo "Using chart version $chart_version on cluster $cluster_name"
+	echo "Using chart version $chart_version, and $helm_chart_config_file on cluster $cluster_name"
 	echo "... Waiting for 10 seconds ... cancel now if something is wrong"
 	sleep 10
 	echo "Deploying ... you may want to run kb_pods_watch in another terminal to ... watch"
@@ -732,7 +767,7 @@ gjc_helm_chart_deploy(){
 		--namespace $cluster_name \
 		--create-namespace \
 		--version=$chart_version \
-		--values config.yaml
+		--values $helm_chart_config_file
 }
 
 gjc_cluster_url(){
@@ -743,6 +778,113 @@ gjc_cluster_url(){
 		return 0
 	fi
 	kubectl get svc proxy-public | awk 'NR > 1 {print $4}'
+}
+
+gjc_cluster_is_https(){
+	printf "\nCrude of checking whether cluster is HTTPS secured is to check for a pod autohttps\n"
+	printf "\nSearched for such pods:...\n"
+
+	kb_pods_list | awk '/https/ {print $1}'
+}
+
+gjc_cluster_admin_users_get(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Gets the admin user usernames from the helm chart config file.
+
+	... Uses slightly messy sed regex ...
+	Main issue would be that it presumes no trailing whitespaces
+	and indentation with spaces only (which is a YAML req anyway?)
+
+	Presumes location of the config file according to the global
+	helm_chart_config_file in this script.
+
+	Currently presumed filename: $helm_chart_config_file
+		"
+		return 0
+	fi
+	# 1: delete all lines but between admin_users: and next line with a colon
+	# 2: delete all lines with a colon at the end
+	# 3: remove (substitute) leading white space, "-" and opening quotation marks
+	# 4: remove closing quotation marks
+	sed -E '/ *admin_users:/,/.*:/!d' $helm_chart_config_file | \
+	sed '/.*: */d' | \
+	sed 's/^ *- *"//g' | \
+	sed 's/" *$//g'
+}
+
+gjc_cluster_auth_admin_url(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Makes a full URL for the cluster's authentication endpoints by using
+	gjc_cluster_url and adding a protocol and "/hub" at the end.
+
+	Optional args:
+		* url ... the cluster's url ... necessary when using HTTPS with a DNS record
+			the protocol and endpoints will be added.
+			If no url provided, the public URL will be used, which will
+			only work with no HTTPS
+		"
+		return 0
+	fi
+
+	if [ "$1" = "" ]; then
+		local url_protocol="http://"
+		local url=$(gjc_cluster_url)
+	else
+		local url_protocol="https://"
+		local url=$1
+	fi
+
+	# this hub is necessary for the authentication endpoints
+	# specifics are set by the API code in the cluster set up
+	echo "$url_protocol$url/hub/admin-signup"
+}
+
+# > Create Admin accounts (for NativeAuthenticator)
+
+gjc_cluster_auth_admin_accounts_add(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Creates the admin user accounts with the provided password.
+
+	Gets user admin usernames with gjc_cluster_admin_users_get
+
+	Will prompt for the password.
+
+	Users can change their password (using the appropriate endpoint on the hub webpage)
+
+	Optional arg:
+		* url ... for when using HTTPS and a DNS record.
+			Passed directly to gjc_cluster_auth_admin_url.
+		"
+		return 0
+	fi
+
+	local hub_url=$(gjc_cluster_auth_admin_url $1)
+	printf "\n Using URL: $hub_url\n"
+	local admin_usernames=( $(gjc_cluster_admin_users_get) )
+	printf "\nFound ${#admin_usernames[@]} admin usernames from $helm_chart_config_file:\n"
+
+	for un in "${admin_usernames[@]}";
+		do echo $un;
+	done
+
+	printf "\nEnter the default password for each admin user\n> "
+	local admin_pw
+	read -s admin_pw
+
+	printf "\n ... waiting 10 seconds ... if something is wrong ... cancel now"
+	sleep 10
+
+	for un in "${admin_usernames[@]}";
+		do curl \
+			-d username="$un" \
+			-d pw="$admin_pw" \
+			-X POST \
+			$hub_url
+			printf "\n"  # provide some spacing between curl responses
+	done
 }
 
 
@@ -774,10 +916,13 @@ gjc_cluster_tear_down(){
 	# force delete all user pods (as helm uninstall seems not capable of this)
 	echo "Force Deleting all user pods (starts with jupyter)"
 	kb_pods_get_jupyter_names | xargs -I {} kubectl delete pod --force {}
+	# could probalby check and wait until they're all cleared rather than just waiting
+	sleep 10
 
 	echo "Uninstalling the jupyterhub helm chart release $cluster_name"
 	helm uninstall $cluster_name --namespace $cluster_name
 	gjc_utils_check_exit_code "Helm failed to uninstall $cluster_name" || return 1
+	sleep 10
 
 	echo "Removing mount targets for EFS $efs_id"
 	mount_tgs=( $(aws efs describe-mount-targets \
