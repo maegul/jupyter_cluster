@@ -15,8 +15,18 @@
 # > globals
 
 # tag key for marking resources created specifically for the cluster
+base_node_group_name='base-ng'  # name of the initial nodegroup in the cluster
 cluster_resource_key='charmers-cluster-id'
 helm_chart_config_file='config.yaml'
+cluster_autoscaler_config_file='cluster-autoscaler-autodiscover.yaml'
+
+gjc_globals_print(){
+	printf "\nGlobals:\n"
+	printf "\nbase_node_group_name: \t\t$base_node_group_name"
+	printf "\ncluster_resource_key: \t\t$cluster_resource_key"
+	printf "\nhelm_chart_config_file: \t$helm_chart_config_file"
+	printf "\ncluster_autoscaler_config_file: \t$cluster_autoscaler_config_file"
+}
 
 # > Help function
 
@@ -42,7 +52,7 @@ Most functions will provide speicific help with argument: -h
 * Deploy the jupyterhub helm chart
 	gjc_helm_jupyterhub_repo_add_update ... \t update the helm charts (every so often)
 	gjc_helm_chart_deploy ... \t\t\t Apply the jupyterhub chart to the current cluster
-	...
+
 	... should make sure the version of the chart being used matches what the pod
 	image relies on ... use these utilities ...
 	gjc_helm_jupyterhub_chart_version_get
@@ -150,6 +160,9 @@ gjc_aws_profile_default_details(){
 
 	aws sts get-caller-identity
 }
+
+alias gjc_aws_profile_default_get_account_id="aws sts get-caller-identity --query 'Account' --output text"
+alias gjc_aws_profile_default_get_arn="aws sts get-caller-identity --query 'Arn' --output text"
 
 
 gjc_aws_region_default_print(){
@@ -260,7 +273,7 @@ alias kb_pods_watch='kubectl get pod --watch'
 
 alias kb_nodes_list='kubectl get node'
 
-kb_pods_list_by_node(){
+kb_pods_list_sort_by_node(){
 	kubectl get pod -o wide | awk 'NR>1{ print $1, $7, $5}' | sort -k 2 | rs _ 3
 }
 
@@ -345,7 +358,7 @@ If no args are provided, they'll be prompted for:
 		local node_type=$2
 		local max_n_nodes=$3
 
-		# if some are blank
+		# if some are blank ... exit
 		if [ "$cluster_name" = "" ] || [ "$node_type" = "" ] || [ "$max_n_nodes" = "" ]; then
 			printf "
 	You must provide all the positional arguments!
@@ -353,7 +366,6 @@ If no args are provided, they'll be prompted for:
 			"
 			return 0
 		fi
-
 	fi
 
 
@@ -369,8 +381,9 @@ If no args are provided, they'll be prompted for:
 	printf "\n ... lets rock!  \nCan take ~30 minutes!\n"
 
 	eksctl create cluster -n $cluster_name \
-		--nodegroup-name base-ng \
+		--nodegroup-name $base_node_group_name \
 		--node-type $node_type \
+		--asg-access \
 		--nodes 1 \
 		--nodes-min 1 \
 		--nodes-max $max_n_nodes && \
@@ -427,8 +440,218 @@ gjc_cluster_sg_main_get_id(){
 		--output text
 }
 
+# >> nodegroup IAM roles and policies
+
+gjc_cluster_iam_oidc_provider_add(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Adds an oidc provider to the cluster, which allows a \"handshake\" like process
+	to occur that allows IAM policies/permissions to be applied to the cluster.
+
+	Adding some IAM policies is necessary for setting up the autoscaler.
+		"
+		return 0
+	fi
+
+	local cluster_name=$(gjc_cluster_name_get)
+
+	eksctl utils associate-iam-oidc-provider \
+		--cluster=$cluster_name \
+		--approve
+}
+
+gjc_cluster_nodegroup_role_arn_get(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Get the arn of the IAM role attached to the nodegroup
+		"
+		return 0
+	fi
+
+	local cluster_name=$(gjc_cluster_name_get)
+
+	aws eks describe-nodegroup \
+		--cluster-name $cluster_name \
+		--nodegroup-name $base_node_group_name \
+		--query 'nodegroup.nodeRole' \
+		--output text
+}
+
+gjc_cluster_nodegroup_role_name_get(){
+	aws iam list-roles \
+		--query "Roles[] | [?Arn == '$(gjc_cluster_nodegroup_role_arn_get)'] | [0].RoleName" \
+		--output text
+}
+
+gjc_cluster_nodegroup_autoscale_policy_name_get(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Gets the name of the policy that eksctl should have automatically created
+	when using the --ags-access flag
+
+	Presumes that the policy will have \"Auto\" in its name, which may change over time.
+		"
+		return 0
+	fi
+	aws iam list-role-policies \
+		--role-name $(gjc_cluster_nodegroup_role_name_get) \
+		--query "PolicyNames[?contains(@, 'Auto')] | [0]" \
+		--output text
+}
+
+gjc_cluster_nodegroup_autoscale_policy_describe(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Gets the autoscale policy for the current cluster's nodegroup, including the
+	allowed actions (the \"PolicyDocument\")
+		"
+		return 0
+	fi
+	aws iam get-role-policy \
+		--role-name $(gjc_cluster_nodegroup_role_name_get) \
+		--policy-name $(gjc_cluster_nodegroup_autoscale_policy_name_get)
+}
+
+
+
+# gjc_cluster_nodegroup_autoscale_policy_add(){
+# 	if [ "$1" = "-h" ]; then
+# 		printf "
+# 	Add the autoscaling IAM policy to the cluster's service accounts
+# 	The policy should have been created automatically by eksctl and
+# 	is retrieved with gjc_cluster_nodegroup_autoscale_policy...
+# 		"
+# 		return 0
+# 	fi
+
+# 	local cluster_name=$(gjc_cluster_name_get)
+# 	local account_id=$(gjc_aws_profile_default_get_account_id)
+# 	local policy_name=$(gjc_cluster_nodegroup_autoscale_policy_name_get)
+# 	local policy_arn="arn:aws:iam::$account_id:policy/$policy_name"
+
+# 	eksctl create iamserviceaccount \
+# 		--cluster=$cluster_name \
+# 		--namespace=kube-system \
+# 		--name=cluster-autoscaler \
+# 		--attach-policy-arn=$policy_arn \
+# 		--override-existing-serviceaccounts \
+# 		--approve
+# }
+
+
+# >> Directly creating the policy
+
+cluster_autoscaler_policy_config_file="cluster_autoscaler_policy.yaml"
+cluster_autoscaler_policy_name="AmazonEKSClusterAutoscalerPolicy"
+
+# can't create again if exists ... need to pull from eksctl autocreated policy, delete, and push
+# up again to ensure renewal?
+gjc_cluster_nodegroup_autoscale_policy_create(){
+	aws iam create-policy \
+		--policy-name $cluster_autoscaler_policy_name \
+		--policy-document "file://$cluster_autoscaler_policy_config_file"
+}
+
+gjc_cluster_nodegroup_autoscale_role_create(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Add the autoscaling IAM policy to the cluster's service accounts
+	The policy should have been created automatically by eksctl and
+	is retrieved with gjc_cluster_nodegroup_autoscale_policy...
+		"
+		return 0
+	fi
+
+	local cluster_name=$(gjc_cluster_name_get)
+	local account_id=$(gjc_aws_profile_default_get_account_id)
+	local policy_name=$(gjc_cluster_nodegroup_autoscale_policy_name_get)
+	local policy_arn="arn:aws:iam::$account_id:policy/$cluster_autoscaler_policy_name"
+
+	eksctl create iamserviceaccount \
+		--cluster=$cluster_name \
+		--namespace=kube-system \
+		--name=cluster-autoscaler \
+		--attach-policy-arn=$policy_arn \
+		--override-existing-serviceaccounts \
+		--approve
+}
+
+gjc_cluster_nodegroup_autoscale_cluster_role_get_arn(){
+
+	local cluster_name=$(gjc_cluster_name_get)
+
+	eksctl get iamserviceaccount --cluster $cluster_name | \
+	awk '/arn:/ NR > 1 {print $3}'
+}
+
+
+# >> Autoscaler
+
+gjc_cluster_autoscale_config_create(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Downloads a default config to the current directory at $cluster_autoscaler_config_file.
+
+	Then subtitutes the cluster name into the marked field (maked with <YOUR CLUSTER NAME>)
+		"
+		return 0
+	fi
+	local cluster_name=$(gjc_cluster_name_get)
+	curl -o \
+	$cluster_autoscaler_config_file \
+	https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
+
+	gjc_utils_check_exit_code "Failed to download config file" || return 1
+	echo "Downloaded config file to $cluster_autoscaler_config_file"
+
+	sed -i '' "s/<YOUR CLUSTER NAME>/$cluster_name/g" $cluster_autoscaler_config_file
+	gjc_utils_check_exit_code "Failed to add cluster name to config file $cluster_autoscaler_config_file" || return 1
+	echo "Edited config file with current cluster name"
+}
+
+gjc_cluster_autoscale_config_apply(){
+
+	gjc_info
+
+	printf "\n\nApplying autoscale config at $cluster_autoscaler_config_file\n"
+	printf "\n ... Waiting 10 seconds ... cancel now if anything is wrong"
+	sleep 10
+
+	kubectl apply -f $cluster_autoscaler_config_file
+}
+
+# redundant ... is the autodiscover process and eksctl doing this automatically?
+# also ... is the iam_role_ref correct ... the arn seems to be different from this
+gjc_cluster_autoscale_pod_add_iam(){
+	local account_id=$(gjc_aws_profile_default_get_account_id)
+	local role_name=$cluster_autoscaler_policy_name
+	local iam_role_ref="eks.amazonaws.com/role-arn=arn:aws:iam::$accounts_id:role/$role_name"
+
+	kubectl annotate serviceaccount cluster-autoscaler \
+		-n kube-system "$iam_role_ref"
+
+}
+
+
+gjc_cluster_autoscale_pod_patch(){
+	kubectl patch deployment cluster-autoscaler \
+	-n kube-system \
+	-p '{"spec":{"template":{"metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict": "false"}}}}}'
+}
+
+gjc_cluster_autoscale_pod_version_set(){
+
+	kubectl set image deployment cluster-autoscaler \
+		-n kube-system \
+		"cluster-autoscaler=k8s.gcr.io/autoscaling/cluster-autoscaler:v$1"
+}
+
+gjc_cluster_autoscale_pod_logs(){
+	kubectl -n kube-system logs -f deployment.apps/cluster-autoscaler
+}
 
 # > Create an EFS
+
 gjc_efs_create(){
 
 	if [ "$1" = "-h" ]; then
@@ -874,7 +1097,7 @@ gjc_cluster_auth_admin_accounts_add(){
 	local admin_pw
 	read -s admin_pw
 
-	printf "\n ... waiting 10 seconds ... if something is wrong ... cancel now"
+	printf "\n ... waiting 10 seconds ... if something is wrong ... cancel now\n"
 	sleep 10
 
 	for un in "${admin_usernames[@]}";
@@ -922,7 +1145,11 @@ gjc_cluster_tear_down(){
 	echo "Uninstalling the jupyterhub helm chart release $cluster_name"
 	helm uninstall $cluster_name --namespace $cluster_name
 	gjc_utils_check_exit_code "Helm failed to uninstall $cluster_name" || return 1
-	sleep 10
+
+	# need better than just sleeping
+	# ... check pods with kb_pods_list and move on only once none are left ...
+	printf "\nWaiting 180 seconds ... to allow cluster resources to shut down before deleting EFS\n"
+	sleep 180
 
 	echo "Removing mount targets for EFS $efs_id"
 	mount_tgs=( $(aws efs describe-mount-targets \
@@ -951,6 +1178,8 @@ gjc_cluster_tear_down(){
 
 	echo "deleting the cluster"
 	eksctl delete cluster -n $cluster_name
+
+	# need to tear down IAM roles and policies for autoscaler?
 }
 
 

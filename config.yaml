@@ -1,16 +1,12 @@
 singleuser:
   image:
     name: pythoncharmers/jupyter-docker-stacks
-    tag: 6a6ef3eaa02d
-  # memory:
-  #   guarantee: 6G
-  #   limit: 8G
+    tag: 38bbe27f48ca
+  memory:
+    guarantee: 4G
+    limit: 4G
   defaultUrl: "/lab"
   storage:
-    # type: "static"
-    # static:
-    #   pvcName: "efs-persist"
-    #   subPath: "home/{username}"
     type: none
     extraVolumes:
       - name: efs-persist
@@ -33,13 +29,22 @@ singleuser:
   fsGid: 0
   cmd: "start-singleuser.sh"
 
-proxy:
-  https:
+# to ensure placeholders get kicked off
+scheduling:
+  podPriority:
     enabled: true
-    hosts:
-      - hub.datacharmers.com
-    letsencrypt:
-      contactEmail: errol@pythoncharmers.com
+    globalDefault: false
+    defaultPriority: 0
+    userPlaceholderPriority: -10
+
+# proxy:
+#   https:
+#     enabled: true
+#     hosts:
+#       - hub.datacharmers.com
+#     letsencrypt:
+#       contactEmail: errol@pythoncharmers.com
+
 hub:
   extraVolumes:
     - name: efs-persist
