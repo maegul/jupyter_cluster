@@ -1,0 +1,71 @@
+###############################
+# place holders are CAPITALISED, and **must be unique**
+# they will be substituted by required values by a script
+###############################
+
+# use autodiscovery (by searching for tags added by eksctl)
+autoDiscovery:
+  clusterName: CLUSTER_NAME
+  # no need to add tags, as there's a convention for tags which are added
+  # automatically by eksctl ... but you could manually add your own tags
+  # and list them here for the autodiscovery
+  #tags:
+
+cloudProvider: aws
+awsRegion: CLUSTER_REGION
+
+# version of image needs to match version of kubernetes on server
+# "v" before version is necessary (must be treated as a string)
+image:
+  tag: vIMAGE_VERSION
+
+# small bump in resources from default inline with AWS recommendation (more memory: 600Mi)
+# seemed to be necessary, if default of 300m is used, seemed to crash
+# just in case it helps for when everyone signs up
+resources:
+  limits:
+    cpu: 100m
+    memory: 600Mi
+  requests:
+    cpu: 100m
+    memory: 600Mi
+
+
+# give the autoscaler the required iam role+policy to scale instances
+rbac:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: AUTOSCALER_IAM_ROLE_ARN
+
+# to ensure that the autoscaler pod itself is not scaled away?
+podAnnotations:
+  # false needs to be string (don't know why)
+  cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+
+# add arguments to the autoscaler container itself
+extraArgs:
+  logtostderr: true
+  stderrthreshold: info
+  v: 4
+  # ... evenly distribute pods across nodes and AZs
+  balance-similar-node-groups: true
+  # ... allows for scaling to zero
+  skip-nodes-with-system-pods: false
+  # write-status-configmap: true
+  # status-config-map-name: cluster-autoscaler-status
+  # leader-elect: true
+  # leader-elect-resource-lock: endpoints
+  # skip-nodes-with-local-storage: true
+  # expander: random
+  # scale-down-enabled: true
+  # min-replica-count: 0
+  # scale-down-utilization-threshold: 0.5
+  # scale-down-non-empty-candidates-count: 30
+  # max-node-provision-time: 15m0s
+  # scan-interval: 10s
+  # scale-down-delay-after-add: 10m
+  # scale-down-delay-after-delete: 0s
+  # scale-down-delay-after-failure: 3m
+  # scale-down-unneeded-time: 10m
+  # balancing-ignore-label_1: first-label-to-ignore
+  # balancing-ignore-label_2: second-label-to-ignore
