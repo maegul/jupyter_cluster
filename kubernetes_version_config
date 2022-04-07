@@ -1,0 +1,2 @@
+# use major and minor version only, no patch version
+cluster_kubernetes_version 1.20
