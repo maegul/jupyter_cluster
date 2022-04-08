@@ -770,7 +770,12 @@ gjc_cluster_autoscaler_iam_role_create(){
 		printf "
 	Add the autoscaling IAM policy to the cluster's service accounts.
 
-	Presumes that it has been created.
+	Presumes that the policy has been created.
+
+	May associate the role with the autoscaler automatically such that no further
+	action, apart from creating the autoscaler pod itself, is necessary, for it to be bound
+	with this role.  This is because (?) the serviceaccount, if created with the appropriate
+	parameters, esepcially the --name parameter, is basically 'part' of the autoscaler.
 		"
 		return 0
 	fi
@@ -890,6 +895,16 @@ gjc_cluster_autoscaler_config_apply(){
 
 # redundant? ... is the autodiscovery process and eksctl doing this automatically?
 gjc_cluster_autoscaler_pod_add_iam(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Add an annotation to the autoscaler's serviceaccount specifying the IAM role
+	that it should use (ie, the one created by this script).
+
+	This may not be necessary, as the role creation function in this script (which uses eksctl)
+	may bind the role to the service/pod already.
+		"
+		return 0
+	fi
 	local role_arn=$(gjc_cluster_autoscaler_iam_role_get_arn)
 	local iam_role_ref="eks.amazonaws.com/role-arn=$role_arn"
 
@@ -974,8 +989,10 @@ gjc_cluster_autoscaler_create(){
 	gjc_utils_check_exit_code "Failed to patch the image command on the autoscaler" || return 1
 	gjc_cluster_autoscaler_pod_evict_policy_patch
 	gjc_utils_check_exit_code "Failed to patch eviction policy on autoscaler" || return 1
-	gjc_cluster_autoscaler_pod_add_iam
-	gjc_utils_check_exit_code "Failed to add annotation assigning the IAM role for the autoscaler" || return 1
+
+	# redundant, at the moment, as it seems to be bound already by the creation of the role
+	# gjc_cluster_autoscaler_pod_add_iam
+	# gjc_utils_check_exit_code "Failed to add annotation assigning the IAM role for the autoscaler" || return 1
 }
 
 # >> Autoscaler config with Helm Chart
