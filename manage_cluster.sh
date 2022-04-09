@@ -17,8 +17,9 @@ base_node_group_name='base-ng'  # name of the initial nodegroup in the cluster
 cluster_resource_key='charmers-cluster-id'
 helm_chart_config_file='config.yaml'
 jupyterhub_chart_version_config_file='jupyterhub_chart_config'
-cluster_autoscaler_config_file='cluster-autoscaler-autodiscover.yaml'
 
+cluster_autoscaler_config_file_source="https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml"
+cluster_autoscaler_config_file='cluster-autoscaler-autodiscover.yaml'
 cluster_autoscaler_policy_config_file="cluster_autoscaler_policy.yaml"
 # note: name "cluster-autoscaler" is (and MUST match) the name of the actual service or pod that is
 # created when the autoscaler is set up (through a parameter "name" in a helm chart
@@ -359,6 +360,8 @@ Creates a cluster!
 
 Uses the currently set default aws profile!
 Uses eksctl to create the cluster.
+Creates a namespace on the cluster with the same name as the cluster ...
+and sets this namespace as the default namespace.
 
 Takes positional arguments, which are passed to eksctl ...
 ... see eksctl create cluster --help for details.
@@ -857,9 +860,7 @@ gjc_cluster_autoscaler_config_create(){
 		return 0
 	fi
 	local cluster_name=$(gjc_cluster_name_get)
-	curl -o \
-	"${cluster_autoscaler_config_file}" \
-	https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
+	curl -o "${cluster_autoscaler_config_file}" $cluster_autoscaler_config_file_source
 
 	gjc_utils_check_exit_code "Failed to download config file" || return 1
 	echo "Downloaded config file to ${cluster_autoscaler_config_file}.tmp"
@@ -893,15 +894,14 @@ gjc_cluster_autoscaler_config_apply(){
 	kubectl apply -f $cluster_autoscaler_config_file
 }
 
-# redundant? ... is the autodiscovery process and eksctl doing this automatically?
 gjc_cluster_autoscaler_pod_add_iam(){
 	if [ "$1" = "-h" ]; then
 		printf "
 	Add an annotation to the autoscaler's serviceaccount specifying the IAM role
 	that it should use (ie, the one created by this script).
 
-	This may not be necessary, as the role creation function in this script (which uses eksctl)
-	may bind the role to the service/pod already.
+	This *should* not be necessary, as the role creation function in this script (which uses eksctl)
+	should add this annotation automatically.
 		"
 		return 0
 	fi
