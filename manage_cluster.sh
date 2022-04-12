@@ -107,6 +107,24 @@ Most functions will provide speicific help with argument: -h
 	return 0
 }
 
+alias gjc_aws_cli_version="aws --version | awk '{print \$1}' | awk -F '\/' '{print \$2}'"
+alias gjc_kubectl_client_version="kubectl version --short --client | awk -F ': ' '{print \$2}'"
+alias gjc_eksctl_version="eksctl version"
+
+gjc_depends(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Print dependancies
+		"
+		return 0
+	fi
+
+	printf "AWS CLI:\n  $(gjc_aws_cli_version)\n  $(which aws)\n"
+	printf "kubectl:\n  $(gjc_kubectl_client_version)\n  $(which kubectl)\n"
+	printf "eksctl:\n  $(gjc_eksctl_version)\n  $(which eksctl)"
+}
+
+
 gjc_info(){
 	gjc_aws_profile_default_details
 
@@ -115,8 +133,10 @@ gjc_info(){
 	eksctl get cluster
 
 	printf "\nKubectl Context: \n$(kb_context)"
-}
 
+	printf "\n------\n"
+	gjc_depends
+}
 
 # checks exit code
 # if not 0, prints out message (first arg) and returns "1" exit code
