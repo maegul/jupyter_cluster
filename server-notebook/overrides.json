@@ -1,0 +1,47 @@
+{
+    "@jupyterlab/docmanager-extension:plugin":{
+        "autosaveInterval": 5
+    },
+    "@jupyterlab/apputils-extension:themes": {
+        "theme": "charmerstheme"
+    },
+    "@jupyterlab/notebook-extension:tracker": {
+        "codeCellConfig": {
+            "autoClosingBrackets": false
+       }
+   },
+    "@jupyterlab/terminal-extension:plugin":{
+        "theme": "dark",
+        "lineHeight": 1.12,
+        "fontSize": 16
+    },
+    "@jupyterlab/extensionmanager-extension:plugin": {
+        "enabled": true
+    },
+    "@jupyterlab/shortcuts-extension:shortcuts": {
+        "shortcuts": [
+        {
+          "command": "notebook:hide-cell-outputs",
+          "keys": [
+            "O"
+          ],
+          "selector": ".jp-Notebook:focus"
+        },
+        {
+          "command": "notebook:show-cell-outputs",
+          "keys": [
+            "Shift O"
+          ],
+          "selector": ".jp-Notebook:focus"
+        },
+        {
+            "command": "notebook:change-cell-to-raw",
+            "keys": [
+                "R"
+            ],
+            "selector": ".jp-Notebook:focus",
+            "disabled": true
+        }
+    ]
+    }
+}

@@ -1,0 +1,6 @@
+{
+	"theme": "charmerstheme",
+	"overrides": {
+	     "code-font-size": "14px"
+	 }
+}

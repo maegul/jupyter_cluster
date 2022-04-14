@@ -1,0 +1,30 @@
+/*This file contains any manual css for this page that needs to override the global styles.
+This is only required when different pages style the same element differently. This is just
+a hack to deal with our current css styles and no new styling should be added in this file.*/
+
+#ipython-main-app {
+    position: relative;
+}
+#jupyter-main-app {
+    position: relative;
+}
+.container{
+    width: 100% !important;
+}
+.text_cell.unrendered {
+    background: #FDA;
+}
+.edit_mode div.cell.selected{
+    background: #bbeeba;
+}
+.edit_mode div.cell.selected > .input{
+    background: #bbeeba;
+}
+.code_cell.selected > .input {
+    background: #AADDF5
+}
+
+div.CodeMirror span.CodeMirror-matchingbracket {
+    color: darkgreen;
+    font-weight: bold;
+}

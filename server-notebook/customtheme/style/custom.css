@@ -1,0 +1,19 @@
+
+/* Change bad light-green for matching bracket to something more easily visible*/
+span.CodeMirror-matchingbracket {
+    color: #e67e00 !Important;
+    font-weight: 900;
+}
+
+/*Cell highlight green in edit mode*/
+.jp-mod-editMode .jp-mod-active .jp-Cell-inputWrapper{
+    background: #bbeeba;
+}
+
+.jp-mod-editMode .jp-mod-active .jp-Collapser {
+    background: var(--md-green-500) !Important;
+}
+/*Cell background blue in command mode*/
+.jp-mod-commandMode .jp-mod-active .jp-Cell-inputWrapper{
+    background: #AADDF5;
+}

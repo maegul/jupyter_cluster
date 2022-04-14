@@ -1,0 +1,27 @@
+{
+    "_comment": "This file should be included somehow in each pod's JupyterLab config (probably without this line).",
+    "shortcuts": [
+        {
+          "command": "notebook:hide-cell-outputs",
+          "keys": [
+            "O"
+          ],
+          "selector": ".jp-Notebook:focus"
+        },
+        {
+          "command": "notebook:show-cell-outputs",
+          "keys": [
+            "Shift O"
+          ],
+          "selector": ".jp-Notebook:focus"
+        },
+        {
+            "command": "notebook:change-cell-to-raw",
+            "keys": [
+                "R"
+            ],
+            "selector": ".jp-Notebook:focus",
+            "disabled": true
+        }
+    ]
+}

@@ -1,0 +1,28 @@
+{
+    "shortcuts": [
+        {
+          "command": "notebook:hide-cell-outputs",
+          "keys": [
+            "O"
+          ],
+          "selector": ".jp-Notebook:focus",
+            "toggle": true
+        },
+        {
+          "command": "notebook:show-cell-outputs",
+          "keys": [
+            "Shift O"
+          ],
+          "selector": ".jp-Notebook:focus"
+        },
+        {
+            // Removes the raw cell shortcut
+            "command": "notebook:change-cell-to-raw",
+            "keys": [
+                "R"
+            ],
+            "selector": ".jp-Notebook:focus",
+            "disabled": true
+        }
+      ]
+}

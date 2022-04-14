@@ -1,0 +1,49 @@
+# location of docker source repo on disk
+# MAY NEED TO ADJUST TO LOCAL ENV !!
+docker_stacks_dir="$HOME/docker-stacks"
+
+# alternative is to source when in the docker stacks dir
+docker_stacks_dir="$(pwd)"
+
+# location of directory for specific image to be used on the jupyterhub server
+server_image="$docker_stacks_dir/server-notebook/"
+
+# get SHA of latest commit to local docker_stacks_dir repo
+alias dk_get_sha='git -C $docker_stacks_dir log --pretty=format:%H -1 | cut -c 1-12'
+
+# pull latest changes into git repo
+alias dk_git_pull_repo='git -C $server_image pull'
+
+# build server-notebook image with appropriate SHA as tag
+alias dk_build_image='sudo docker build -t pythoncharmers/jupyter-docker-stacks:$(dk_get_sha) $server_image'
+
+# run newly built image
+alias dk_run_image='sudo docker run --name test -p 8888:8888 pythoncharmers/jupyter-docker-stacks:$(dk_get_sha)'
+
+# run newly built image as jupyter LAB (notebook is default)
+# start-notebook.sh script requires only some env variable for jupyter_enable_lab (ie [[! -z ${JUPYTER_ENABLE_LAB}]])
+alias dk_run_image_lab='sudo docker run --name test -p 8888:8888 -e JUPYTER_ENABLE_LAB="True" pythoncharmers/jupyter-docker-stacks:$(dk_get_sha)'
+
+# Run shell as root from newly built shell 
+alias dk_run_image_shell='sudo docker run -it --entrypoint /bin/bash pythoncharmers/jupyter-docker-stacks:$(dk_get_sha)'
+
+# list all containers
+alias dk_list_all_container='sudo docker container ls -a'
+
+# remove all stopped containers
+alias dk_remove_containers='sudo docker container prune'
+
+# push git repo to remote
+alias dk_git_push_repo='git -C $docker_stacks_dir push origin master'
+
+# push image that has been built from latest git commit to dockerHub (presumes credentials set up)
+alias dk_push_image='sudo docker push pythoncharmers/jupyter-docker-stacks:$(git -C $docker_stacks_dir log --pretty=format:%H -1 | cut -c 1-12)'
+
+# list ids for all images
+alias dk_list_all_image_ids='sudo docker images -aq'
+
+# list all images
+alias dk_list_all_image='sudo docker images -a'
+
+# remove all images to clear disk space
+alias dk_remove_images='sudo docker rmi -f $(dk_list_all_image_ids)'

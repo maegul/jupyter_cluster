@@ -1,0 +1,24 @@
+tricks:
+  - watchdog.tricks.ShellCommandTrick:
+      patterns:
+        - "*.ipynb"
+      shell_command: 'sleep 0.5 && jupyter nbconvert "${watch_src_path}"'
+      ignore_patterns:
+        - "**/.ipynb_checkpoints/*"
+        - "**/Data"
+        - "**/venv"
+        - "**/.~*"
+        - "**/Materials"
+      ignore_directories: true
+      wait_for_process: true
+      drop_during_process: true
+  - watchdog.tricks.LoggerTrick:
+      patterns:
+        - "*.ipynb"
+      ignore_patterns:
+        - "**/.ipynb_checkpoints/*"
+        - "**/Data"
+        - "**/venv"
+        - "**/.~*"
+        - "**/Materials"
+      ignore_directories: true
