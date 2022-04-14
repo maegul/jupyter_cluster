@@ -1422,7 +1422,7 @@ gjc_helm_jupyterhub_chart_deploy(){
 	sleep 10
 	echo "Deploying ... you may want to run kb_pods_watch in another terminal to ... watch"
 
-	gjc_helm_autoscaler_repo_add_update
+	gjc_helm_jupyterhub_repo_add_update
 	gjc_utils_check_exit_code "Failed to update helm repo" || return 1
 
 	helm upgrade --cleanup-on-fail \

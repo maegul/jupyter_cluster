@@ -8,5 +8,5 @@ spec:
   accessModes:
     - ReadWriteMany
   nfs:
-    server: fs-0729a2956eb5a925e.efs.ap-southeast-2.amazonaws.com
+    server: fs-007824d1b683b2f22.efs.ap-southeast-2.amazonaws.com
     path: "/"
