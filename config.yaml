@@ -43,7 +43,7 @@ scheduling:
 #     hosts:
 #       - hub.datacharmers.com
 #     letsencrypt:
-#       contactEmail: errol@pythoncharmers.com
+#       contactEmail: ed@pythoncharmers.com
 
 hub:
   extraVolumes:

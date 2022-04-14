@@ -27,6 +27,23 @@ cluster_autoscaler_policy_config_file="cluster_autoscaler_policy.yaml"
 cluster_autoscaler_service_name='cluster-autoscaler'
 
 
+# >> Text Formatting
+# >> Text formatting
+function gjc_RGBcolor {
+	echo "16 + $1 * 36 + $2 * 6 + $3" | bc
+}
+
+# >>> preddefined colours
+# Predefined colors
+gjc_fmt_reset=$(tput sgr0)
+gjc_fmt_bold=$(tput bold)
+gjc_fmt_undln=$(tput smul)
+# gjc_fmt_red=$(tput setaf $(gjc_RGBcolor 4 1 1))
+gjc_fmt_grn=$(tput setaf 2)
+gjc_fmt_fnc=${gjc_fmt_grn}
+gjc_fmt_hd=${gjc_fmt_undln}${gjc_fmt_bold}
+
+
 gjc_globals_print(){
 	printf "\nGlobals:\n"
 	printf "\nkubernetes_version_config: \t\t$kubernetes_version_config"
@@ -43,15 +60,15 @@ gjc_globals_print(){
 
 gjc_tldr(){
 	printf "
-TL;DR:
-	* gjc_info (check accounts and context)
-	* gjc_cluster_create
-	* gjc_cluster_autoscaler_create
-	* gjc_efs_create
-	* gjc_cluster_efs_deploy
-	* gjc_helm_jupyterhub_chart_deploy
-	* gjc_cluster_auth_admin_accounts_add
-	* gjc_cluster_tear_down (tear down and delete cluster)
+${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_info${gjc_fmt_reset} (check accounts and context)
+	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_cluster_autoscaler_create${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_efs_create${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_cluster_efs_deploy${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_deploy${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_cluster_auth_admin_accounts_add${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_cluster_tear_down${gjc_fmt_reset} (tear down and delete cluster)
 	"
 }
 
@@ -63,44 +80,44 @@ Most functions will provide speicific help with argument: -h
 * Under each section, \"...\" separates essential commands at the top from
   non-essential/optional commands.
 
-* Make sure you're using the right aws profile:
-	gjc_aws_profile_default_print ...\t print current
-	gjc_aws_profile_list ... \t\t list all in config
-	gjc_aws_profile_default_set ... \t set default profile to one from list
+* ${gjc_fmt_hd}Make sure you're using the right aws profile:${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_aws_profile_default_print${gjc_fmt_reset} ...\t print current
+	${gjc_fmt_fnc}gjc_aws_profile_list${gjc_fmt_reset} ... \t\t list all in config
+	${gjc_fmt_fnc}gjc_aws_profile_default_set${gjc_fmt_reset} ... \t set default profile to one from list
 
-* create a cluster!:
-	gjc_cluster_create ... \t\t creates a cluster using eksctl, REQUIRES ARGUMENTS
+* ${gjc_fmt_hd}create a cluster!:${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset} ... \t\t creates a cluster using eksctl, REQUIRES ARGUMENTS
 	...
-	gjc_cluster_list ... \t\t list all clusters under current profile
+	${gjc_fmt_fnc}gjc_cluster_list${gjc_fmt_reset} ... \t\t list all clusters under current profile
 
-* add autoscaler (using full config):
-	gjc_cluster_autoscaler_create ... \t\t Create autoscaler on the cluster with appropriate permissions
+* ${gjc_fmt_hd}add autoscaler (using full config):${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_cluster_autoscaler_create${gjc_fmt_reset} ... \t\t Create autoscaler on the cluster with appropriate permissions
 	...
-	gjc_cluster_autoscaler_permissions_create ... \t create permissions for autoscaler
+	${gjc_fmt_fnc}gjc_cluster_autoscaler_permissions_create${gjc_fmt_reset} ... \t create permissions for autoscaler
 
-* Add an EFS:
-	gjc_efs_create ... \t\t Adds an efs to the cluster's VPC with appropriate security group
-	gjc_cluster_efs_deploy ... \t Adds the EFS to the cluster
+* ${gjc_fmt_hd}Add an EFS:${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_efs_create${gjc_fmt_reset} ... \t\t Adds an efs to the cluster's VPC with appropriate security group
+	${gjc_fmt_fnc}gjc_cluster_efs_deploy${gjc_fmt_reset} ... \t Adds the EFS to the cluster
 
-* Deploy the jupyterhub helm chart
-	gjc_helm_jupyterhub_chart_deploy ... \t\t\t Apply the jupyterhub chart to the current cluster
+* ${gjc_fmt_hd}Deploy the jupyterhub helm chart${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_deploy${gjc_fmt_reset} ... \t\t\t Apply the jupyterhub chart to the current cluster
 	...
 	... should make sure the version of the chart being used matches what the pod
 	image relies on ... use these utilities to check and set if needed...
-	gjc_helm_jupyterhub_chart_version_get
-	gjc_helm_jupyterhub_chart_version_set
+	${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_version_get${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_version_set${gjc_fmt_reset}
 
-* Add the admin users
-	gjc_cluster_admin_users_get ... \t\t Check that admin usernames extracted correctly
-	gjc_cluster_auth_admin_accounts_add ... \t add admin users with provided password
+* ${gjc_fmt_hd}Add the admin users${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_cluster_admin_users_get${gjc_fmt_reset} ... \t\t Check that admin usernames extracted correctly
+	${gjc_fmt_fnc}gjc_cluster_auth_admin_accounts_add${gjc_fmt_reset} ... \t add admin users with provided password
 		If using HTTPS (which is likely, you will need to provide the url ... see help with -h)
 
-* Get the URL
-	gjc_cluster_url ... \t prints the public url of the jupyterhub server
+* ${gjc_fmt_hd}Get the URL${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_cluster_url${gjc_fmt_reset} ... \t prints the public url of the jupyterhub server
 							(unless DNS records are used)
 
-* Remove the cluster
-	gjc_cluster_tear_down ... \t\t Tears down the cluster and associated resources created by this script
+* ${gjc_fmt_hd}Remove the cluster${gjc_fmt_reset}
+	${gjc_fmt_fnc}gjc_cluster_tear_down${gjc_fmt_reset} ... \t\t Tears down the cluster and associated resources created by this script
 	"
 
 
@@ -110,6 +127,7 @@ Most functions will provide speicific help with argument: -h
 alias gjc_aws_cli_version="aws --version | awk '{print \$1}' | awk -F '\/' '{print \$2}'"
 alias gjc_kubectl_client_version="kubectl version --short --client | awk -F ': ' '{print \$2}'"
 alias gjc_eksctl_version="eksctl version"
+alias gjc_helm_version="helm version --short"
 
 gjc_depends(){
 	if [ "$1" = "-h" ]; then
@@ -121,7 +139,8 @@ gjc_depends(){
 
 	printf "AWS CLI:\n  $(gjc_aws_cli_version)\n  $(which aws)\n"
 	printf "kubectl:\n  $(gjc_kubectl_client_version)\n  $(which kubectl)\n"
-	printf "eksctl:\n  $(gjc_eksctl_version)\n  $(which eksctl)"
+	printf "eksctl:\n  $(gjc_eksctl_version)\n  $(which eksctl)\n"
+	printf "helm:\n  $(gjc_helm_version)\n  $(which helm)"
 }
 
 
@@ -497,8 +516,9 @@ gjc_cluster_kubernetes_server_version_get(){
 		sed -E 's [[:blank:]]*v([0-9])\.([0-9]+).* \1.\2 g'
 		)
 
+
 	# double check ... as can be important ... use configured version if error
-	# (echo "$kubernetes_version" | grep '^[0-9]\.[0-9][0-9]*$') || echo $(gjc_kubernetes_version_get)
+	(echo "$kubernetes_version" | grep '^[0-9]\.[0-9][0-9]*$') || echo $(gjc_kubernetes_version_get)
 }
 
 alias gjc_cluster_list='eksctl get cluster'
@@ -552,58 +572,58 @@ gjc_cluster_sg_main_get_id(){
 
 # getting the policy created automatically by eksctl ... probelmatic method?
 
-gjc_cluster_nodegroup_role_arn_get(){
-	if [ "$1" = "-h" ]; then
-		printf "
-	Get the arn of the IAM role attached to the nodegroup
-		"
-		return 0
-	fi
+# gjc_cluster_nodegroup_role_arn_get(){
+# 	if [ "$1" = "-h" ]; then
+# 		printf "
+# 	Get the arn of the IAM role attached to the nodegroup
+# 		"
+# 		return 0
+# 	fi
 
-	local cluster_name=$(gjc_cluster_name_get)
+# 	local cluster_name=$(gjc_cluster_name_get)
 
-	aws eks describe-nodegroup \
-		--cluster-name $cluster_name \
-		--nodegroup-name $base_node_group_name \
-		--query 'nodegroup.nodeRole' \
-		--output text
-}
+# 	aws eks describe-nodegroup \
+# 		--cluster-name $cluster_name \
+# 		--nodegroup-name $base_node_group_name \
+# 		--query 'nodegroup.nodeRole' \
+# 		--output text
+# }
 
 
-gjc_cluster_nodegroup_role_name_get(){
-	aws iam list-roles \
-		--query "Roles[] | [?Arn == '$(gjc_cluster_nodegroup_role_arn_get)'] | [0].RoleName" \
-		--output text
-}
+# gjc_cluster_nodegroup_role_name_get(){
+# 	aws iam list-roles \
+# 		--query "Roles[] | [?Arn == '$(gjc_cluster_nodegroup_role_arn_get)'] | [0].RoleName" \
+# 		--output text
+# }
 
-gjc_cluster_nodegroup_autoscale_policy_name_get(){
-	if [ "$1" = "-h" ]; then
-		printf "
-	Gets the name of the policy that eksctl should have automatically created
-	when using the --ags-access flag
+# gjc_cluster_nodegroup_autoscale_policy_name_get(){
+# 	if [ "$1" = "-h" ]; then
+# 		printf "
+# 	Gets the name of the policy that eksctl should have automatically created
+# 	when using the --ags-access flag
 
-	Presumes that the policy will have \"Auto\" in its name, which may change over time.
-		"
-		return 0
-	fi
-	aws iam list-role-policies \
-		--role-name $(gjc_cluster_nodegroup_role_name_get) \
-		--query "PolicyNames[?contains(@, 'Auto')] | [0]" \
-		--output text
-}
+# 	Presumes that the policy will have \"Auto\" in its name, which may change over time.
+# 		"
+# 		return 0
+# 	fi
+# 	aws iam list-role-policies \
+# 		--role-name $(gjc_cluster_nodegroup_role_name_get) \
+# 		--query "PolicyNames[?contains(@, 'Auto')] | [0]" \
+# 		--output text
+# }
 
-gjc_cluster_nodegroup_autoscale_policy_describe(){
-	if [ "$1" = "-h" ]; then
-		printf "
-	Gets the autoscale policy for the current cluster's nodegroup, including the
-	allowed actions (the \"PolicyDocument\")
-		"
-		return 0
-	fi
-	aws iam get-role-policy \
-		--role-name $(gjc_cluster_nodegroup_role_name_get) \
-		--policy-name $(gjc_cluster_nodegroup_autoscale_policy_name_get)
-}
+# gjc_cluster_nodegroup_autoscale_policy_describe(){
+# 	if [ "$1" = "-h" ]; then
+# 		printf "
+# 	Gets the autoscale policy for the current cluster's nodegroup, including the
+# 	allowed actions (the \"PolicyDocument\")
+# 		"
+# 		return 0
+# 	fi
+# 	aws iam get-role-policy \
+# 		--role-name $(gjc_cluster_nodegroup_role_name_get) \
+# 		--policy-name $(gjc_cluster_nodegroup_autoscale_policy_name_get)
+# }
 
 
 
@@ -653,7 +673,8 @@ gjc_cluster_autoscaler_latest_compatible_version(){
 	fi
 
 	# using the helm chart version information to determine the latest version
-	gjc_helm_autoscaler_repo_add_update
+	gjc_helm_autoscaler_repo_add_update > /dev/null
+	gjc_utils_check_exit_code "Failed to update helm chart ... maybe retry" || return 1
 
 	local cluster_kb_v=$(gjc_cluster_kubernetes_server_version_get)
 
@@ -1250,6 +1271,9 @@ gjc_efs_get_id(){
 		return 0
 	fi
 	local cluster_name=$(gjc_cluster_name_get)
+	# aws CLI doesn't allow filtering EFS resources by tags directly with --filters ... :(
+	# here ... looking up the tag with key = cluster_resource_key,
+	# then checking that its value matches the cluster_name
 	local query="FileSystems[] | [?contains(not_null(Tags[?Key=='$cluster_resource_key'].Value), '$cluster_name')] | [0].FileSystemId"
 	aws efs describe-file-systems \
 		--query "$query" \
@@ -1268,7 +1292,7 @@ gjc_efs_sg_get_id(){
 	# note, also ... presumes only ONE custom sg created by this script!
 	# should another be necessary ... more tags will be necessary
 	aws ec2 describe-security-groups \
-		--filters "Name=tag:$cluster_resource_key,Values=jhubproto" \
+		--filters "Name=tag:$cluster_resource_key,Values=$cluster_name" \
 		--query 'SecurityGroups[0].GroupId' \
 		--output text
 }
@@ -1357,6 +1381,55 @@ gjc_cluster_efs_describe(){
 	kubectl describe pvc
 }
 
+# > DNS and Elastic IP
+
+gjc_ipaddress_create(){
+
+	local cluster_name=$(gjc_cluster_name_get)
+
+	local epi_id=$(
+		aws ec2 allocate-address \
+		--query 'AllocationId' \
+		--output text
+		)
+	gjc_utils_check_exit_code "Failed to create elastic ip address" || return 1
+
+	aws ec2 create-tags \
+		--resources $epi_id \
+		--tags Key=$cluster_resource_key,Value=$cluster_name
+
+	printf "\nCreated elastic ip address: $epi_id\n"
+}
+
+gjc_ipaddress_get_id(){
+	local cluster_name=$(gjc_cluster_name_get)
+
+	aws ec2 describe-addresses \
+		--filters "Name=tag:$cluster_resource_key,Values=$cluster_name" \
+		--query "Addresses[0].AllocationId" \
+		--output text
+}
+
+gjc_ipaddress_get_address(){
+	local eip_id=$(gjc_ipaddress_get_id)
+	gjc_utils_check_exit_code "Failed to get elastic ip address id" || return 1
+
+	aws ec2 describe-addresses \
+		--query "Addresses[?AllocationId == '$eip_id'] | [0].PublicIp" \
+		--output text
+}
+
+gjc_ipaddress_release(){
+	local eip_id=$(gjc_ipaddress_get_id)
+	local eip_address=$(gjc_ipaddress_get_address)
+
+	gjc_utils_check_exit_code "Failed to get id and release ip address" || return 1
+
+	aws ec2 release-address --allocation-id "$eip_id"
+	gjc_utils_check_exit_code "Failed to release elastic ip address with id $eip_id" || return 1
+
+	printf "\n Released elastic ipaddress:\n  id:\t$epi_id\n  address:\t$epi_address\n"
+}
 
 # > Deploy the JupyterHub Chart Release
 
@@ -1645,3 +1718,6 @@ echo "AWS CLI should probably be >= 2.0.0"
 gjc_aws_profile_default_print
 
 echo "Current kubectl context: $(kb_context)"
+
+printf "\n\nDependencies:\n\n"
+gjc_depends
