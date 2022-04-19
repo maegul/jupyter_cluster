@@ -502,6 +502,30 @@ If no args are provided, they'll be prompted for:
 
 }
 
+gjc_cluster_nodes_scale(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Scale the number of nodes(/EC@ instances) to the provided number
+
+	Can scale down to 0 and back up to a positive number!
+	It may take some time for all resources to be drained and terminated if scaling
+	down to 0 nodes.
+
+	Scaling to 0 will not kill the cluster.
+	Scaling back up can be done just with this command (provided the kubectl context etc are correct)
+		"
+		return 0
+	fi
+
+	local cluster_name=$(gjc_cluster_name_get)
+
+	eksctl scale nodegroup \
+		--cluster $cluster_name \
+		--name $base_node_group_name \
+		--nodes $1 \
+		--nodes-min 0
+}
+
 gjc_cluster_kubernetes_server_version_get(){
 	if [ "$1" = "-h" ]; then
 		printf "
