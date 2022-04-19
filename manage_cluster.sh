@@ -11,13 +11,15 @@
 # version of kubernetes on the cluster
 # range of acceptable versions depends on the versions of kubectl and eksctl installed
 # as well as what AWS EKS supports
-kubernetes_version_config_file='kubernetes_version_config'
+user_kubernetes_version_config_file='user_kubernetes_version_config'
+# user defined variables for the jupyterhub chart
+user_jupyterhub_chart_config_file='user_jupyterhub_chart_config'
+
 base_node_group_name='base-ng'  # name of the initial nodegroup in the cluster
 # tag key for marking resources created specifically for the cluster
 cluster_resource_key='charmers-cluster-id'
 helm_chart_config_file='config.yaml'
 helm_chart_config_template_file='config_template.yaml'
-jupyterhub_chart_version_config_file='jupyterhub_chart_config'
 
 cluster_autoscaler_config_file_source="https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml"
 cluster_autoscaler_config_file='cluster-autoscaler-autodiscover.yaml'
@@ -48,11 +50,11 @@ gjc_fmt_hd=${gjc_fmt_undln}${gjc_fmt_bold}
 
 gjc_globals_print(){
 	printf "\n${gjc_fmt_hd}Globals${gjc_fmt_reset}:\n"
-	printf "\nkubernetes_version_config: \t\t$kubernetes_version_config_file"
+	printf "\nkubernetes_version_config: \t\t$user_kubernetes_version_config_file"
 	printf "\nbase_node_group_name: \t\t\t$base_node_group_name"
 	printf "\ncluster_resource_key: \t\t\t$cluster_resource_key"
 	printf "\nhelm_chart_config_file: \t\t$helm_chart_config_file"
-	printf "\njupyterhub_chart_version_config_file: \t$jupyterhub_chart_version_config_file"
+	printf "\njupyterhub_chart_version_config_file: \t$user_jupyterhub_chart_config_file"
 	printf "\ncluster_autoscaler_config_file: \t$cluster_autoscaler_config_file"
 	printf "\ncluster_autoscaler_policy_config_file: \t$cluster_autoscaler_policy_config_file"
 	printf "\ncluster_autoscaler_service_name: \t$cluster_autoscaler_service_name"
@@ -64,6 +66,8 @@ gjc_tldr(){
 	printf "
 ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_info${gjc_fmt_reset} (check accounts and context)
+	* check config files: ${gjc_fmt_raw}$user_kubernetes_version_config_file $user_jupyterhub_chart_config_file${gjc_fmt_reset}
+	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_autoscaler_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_efs_create${gjc_fmt_reset}
@@ -187,12 +191,12 @@ gjc_utils_check_exit_code(){
 gjc_kubernetes_version_get(){
 	if [ "$1" = "-h" ]; then
 		printf "
-	What version of kubernetes to use derived from config file $kubernetes_version_config_file
+	What version of kubernetes to use derived from config file $user_kubernetes_version_config_file
 		"
 		return 0
 	fi
 
-	cat $kubernetes_version_config_file | awk '/cluster_kubernetes_version/ {print $2}'
+	cat $user_kubernetes_version_config_file | awk '/cluster_kubernetes_version/ {print $2}'
 
 }
 
@@ -1554,19 +1558,19 @@ gjc_helm_jupyterhub_chart_version_get(){
 		return 0
 	fi
 
-	cat $jupyterhub_chart_version_config_file | awk '/chart_version/ {print $2}'
+	cat $user_jupyterhub_chart_config_file | awk '/chart_version/ {print $2}'
 }
 
 gjc_helm_jupyterhub_chart_config_https_enabled_get(){
-	cat $jupyterhub_chart_version_config_file | awk '/https_enabled/ {print $2}'
+	cat $user_jupyterhub_chart_config_file | awk '/https_enabled/ {print $2}'
 }
 
 gjc_helm_jupyterhub_chart_config_https_host_get(){
-	cat $jupyterhub_chart_version_config_file | awk '/https_host_domain/ {print $2}'
+	cat $user_jupyterhub_chart_config_file | awk '/https_host_domain/ {print $2}'
 }
 
 gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get(){
-	cat $jupyterhub_chart_version_config_file | awk '/lets_encrypt_contact_email/ {print $2}'
+	cat $user_jupyterhub_chart_config_file | awk '/lets_encrypt_contact_email/ {print $2}'
 }
 
 gjc_helm_jupyterhub_config_create(){
