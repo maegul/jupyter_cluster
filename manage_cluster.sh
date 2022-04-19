@@ -31,7 +31,6 @@ cluster_autoscaler_service_name='cluster-autoscaler'
 
 
 # >> Text Formatting
-# >> Text formatting
 function gjc_RGBcolor {
 	echo "16 + $1 * 36 + $2 * 6 + $3" | bc
 }
@@ -43,8 +42,9 @@ gjc_fmt_bold=$(tput bold)
 gjc_fmt_undln=$(tput smul)
 # gjc_fmt_red=$(tput setaf $(gjc_RGBcolor 4 1 1))
 gjc_fmt_grn=$(tput setaf 2)
+gjc_fmt_ppl=$(tput setaf 4)
 gjc_fmt_fnc=${gjc_fmt_grn}
-gjc_fmt_raw=${gjc_fmt_grn}
+gjc_fmt_raw=${gjc_fmt_ppl}${gjc_fmt_undln}
 gjc_fmt_hd=${gjc_fmt_undln}${gjc_fmt_bold}
 
 
@@ -66,13 +66,19 @@ gjc_tldr(){
 	printf "
 ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_info${gjc_fmt_reset} (check accounts and context)
-	* check config files: ${gjc_fmt_raw}$user_kubernetes_version_config_file $user_jupyterhub_chart_config_file${gjc_fmt_reset}
-	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
+	* check user config files
+		- ${gjc_fmt_raw}$user_kubernetes_version_config_file${gjc_fmt_reset} (version of kubernetes)
+		- ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} (jupyterhub parameters incl https)
 	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_autoscaler_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_efs_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_efs_deploy${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_deploy${gjc_fmt_reset}
+	* IF using HTTPS:
+		- ${gjc_fmt_fnc}gjc_cluster_proxy_public_url${gjc_fmt_reset} (get public URL)
+		- Add record to DNS
+		- Ensure ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} contains host name
+		- ${gjc_fmt_fnc}gjc_https_reset${gjc_fmt_reset} (once DNS propagated, restart letsencrypt process)
 	* ${gjc_fmt_fnc}gjc_cluster_auth_admin_accounts_add${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_tear_down${gjc_fmt_reset} (tear down and delete cluster)
 	"
@@ -1639,6 +1645,20 @@ gjc_helm_jupyterhub_chart_deploy(){
 		--values $helm_chart_config_file
 }
 
+gjc_cluster_proxy_public_url(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Get the URL of the cluster's loadbalancer's public URL
+
+	If HTTPS is enabled, this will not be a functional address as HTTPS certification
+	will not exist for this URL.  It is an arbitrary AWS URL.
+	BUT, it is necessary for setting up a DNS record.
+		"
+		return 0
+	fi
+	kubectl get svc proxy-public | awk 'NR > 1 {print $4}'
+}
+
 gjc_cluster_url(){
 	if [ "$1" = "-h" ]; then
 		printf "
@@ -1656,7 +1676,7 @@ gjc_cluster_url(){
 	if [ "$https_enabled" = "true" ]; then
 		local url=$(gjc_helm_jupyterhub_chart_config_https_host_get)
 	else
-		local url=$(kubectl get svc proxy-public | awk 'NR > 1 {print $4}')
+		local url=$(gjc_cluster_proxy_public_url)
 	fi
 
 	echo $url
