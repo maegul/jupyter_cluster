@@ -16,6 +16,7 @@ base_node_group_name='base-ng'  # name of the initial nodegroup in the cluster
 # tag key for marking resources created specifically for the cluster
 cluster_resource_key='charmers-cluster-id'
 helm_chart_config_file='config.yaml'
+helm_chart_config_template_file='config_template.yaml'
 jupyterhub_chart_version_config_file='jupyterhub_chart_config'
 
 cluster_autoscaler_config_file_source="https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml"
@@ -41,19 +42,20 @@ gjc_fmt_undln=$(tput smul)
 # gjc_fmt_red=$(tput setaf $(gjc_RGBcolor 4 1 1))
 gjc_fmt_grn=$(tput setaf 2)
 gjc_fmt_fnc=${gjc_fmt_grn}
+gjc_fmt_raw=${gjc_fmt_grn}
 gjc_fmt_hd=${gjc_fmt_undln}${gjc_fmt_bold}
 
 
 gjc_globals_print(){
-	printf "\nGlobals:\n"
-	printf "\nkubernetes_version_config: \t\t$kubernetes_version_config"
-	printf "\nbase_node_group_name: \t\t$base_node_group_name"
-	printf "\ncluster_resource_key: \t\t$cluster_resource_key"
+	printf "\n${gjc_fmt_hd}Globals${gjc_fmt_reset}:\n"
+	printf "\nkubernetes_version_config: \t\t$kubernetes_version_config_file"
+	printf "\nbase_node_group_name: \t\t\t$base_node_group_name"
+	printf "\ncluster_resource_key: \t\t\t$cluster_resource_key"
 	printf "\nhelm_chart_config_file: \t\t$helm_chart_config_file"
-	printf "\njupyterhub_chart_version_config_file: \t\t$jupyterhub_chart_version_config_file"
+	printf "\njupyterhub_chart_version_config_file: \t$jupyterhub_chart_version_config_file"
 	printf "\ncluster_autoscaler_config_file: \t$cluster_autoscaler_config_file"
 	printf "\ncluster_autoscaler_policy_config_file: \t$cluster_autoscaler_policy_config_file"
-	printf "\ncluster_autoscaler_service_name: \t\t$cluster_autoscaler_service_name"
+	printf "\ncluster_autoscaler_service_name: \t$cluster_autoscaler_service_name"
 }
 
 # > Help functions
@@ -105,7 +107,6 @@ Most functions will provide speicific help with argument: -h
 	... should make sure the version of the chart being used matches what the pod
 	image relies on ... use these utilities to check and set if needed...
 	${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_version_get${gjc_fmt_reset}
-	${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_version_set${gjc_fmt_reset}
 
 * ${gjc_fmt_hd}Add the admin users${gjc_fmt_reset}
 	${gjc_fmt_fnc}gjc_cluster_admin_users_get${gjc_fmt_reset} ... \t\t Check that admin usernames extracted correctly
@@ -253,7 +254,7 @@ gjc_aws_profile_default_details(){
 
 	gjc_aws_profile_default_print
 
-	aws sts get-caller-identity
+	aws sts get-caller-identity --output table
 }
 
 alias gjc_aws_profile_default_get_account_id="aws sts get-caller-identity --query 'Account' --output text"
@@ -473,7 +474,7 @@ If no args are provided, they'll be prompted for:
 	"
 
 	printf "\n... Waiting 10 seconds ... cancel now if something is wrong\n"
-	sleep 10
+	sleep 10 || return 1
 
 	printf "\n ... lets rock!  \nCan take ~30 minutes!\n"
 
@@ -930,7 +931,7 @@ gjc_cluster_autoscaler_config_apply(){
 
 	printf "\n\nApplying autoscale config at $cluster_autoscaler_config_file\n"
 	printf "\n ... Waiting 10 seconds ... cancel now if anything is wrong"
-	sleep 10
+	sleep 10 || return 1
 
 	kubectl apply -f $cluster_autoscaler_config_file
 }
@@ -1139,7 +1140,7 @@ gjc_efs_create(){
 	echo "Setting up EFS on cluster $cluster_name in $current_region"
 
 	echo "Wating 10 seconds ... cancel now if something is wrong"
-	sleep 10
+	sleep 10 || return 1
 
 	# prints the first system id, may want to assign for later use
 	local efs_id=$(aws efs create-file-system \
@@ -1227,7 +1228,7 @@ gjc_efs_create(){
 		--query "SecurityGroups[?GroupId=='$cluster_sg'].IpPermissions[].UserIdGroupPairs[][GroupId, UserId]"
 
 	printf "\n sleeping 10 seconds"
-	sleep 10
+	sleep 10 || return 1
 
 
 	# >> Add this security group to new mount targets
@@ -1401,21 +1402,21 @@ gjc_ipaddress_create(){
 	printf "\nCreated elastic ip address: $epi_id\n"
 }
 
-gjc_ipaddress_get_id(){
-	local cluster_name=$(gjc_cluster_name_get)
+gjc_ipaddress_get_ids(){
 
+	# check only for the tag key, not the value (ie, any value will match due to wild card in Values=*)
+	# as ip addresses can be used for multiple clusters
 	aws ec2 describe-addresses \
-		--filters "Name=tag:$cluster_resource_key,Values=$cluster_name" \
+		--filters "Name=tag:$cluster_resource_key,Values=*" \
 		--query "Addresses[0].AllocationId" \
 		--output text
 }
 
-gjc_ipaddress_get_address(){
-	local eip_id=$(gjc_ipaddress_get_id)
-	gjc_utils_check_exit_code "Failed to get elastic ip address id" || return 1
-
+gjc_ipaddress_get_addresses(){
+	# local eip_id=$(gjc_ipaddress_get_id)
 	aws ec2 describe-addresses \
-		--query "Addresses[?AllocationId == '$eip_id'] | [0].PublicIp" \
+		--filters "Name=tag:$cluster_resource_key,Values=*" \
+		--query "Addresses[].PublicIp" \
 		--output text
 }
 
@@ -1430,6 +1431,77 @@ gjc_ipaddress_release(){
 
 	printf "\n Released elastic ipaddress:\n  id:\t$epi_id\n  address:\t$epi_address\n"
 }
+
+# >> HTTPS services
+
+gjc_https_pod_name_get(){
+	kubectl get pod | awk '/autohttps/ {print $1}'
+}
+
+gjc_https_pod_delete(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	If https is not working, chances are the process failed before DNS propagated.
+
+	Once DNS has propagated, you need to restart the pods to restart the certification
+	process.  A workable retry
+
+	Deleting the pod achieves this (as kubernetes will automatically recreate the pod from scratch)
+		"
+		return 0
+	fi
+
+	kubectl delete pods $(gjc_https_pod_name_get)
+}
+
+gjc_https_pod_logs(){
+	kubectl logs -f $(gjc_https_pod_name_get) -c secret-sync
+}
+
+gjc_https_pod_traefik_logs(){
+	kubectl logs -f $(gjc_https_pod_name_get) -c traefik
+}
+
+gjc_https_tls_secret_get(){
+	kubectl get secret proxy-public-tls-acme -o json
+}
+
+gjc_https_tls_secret_delete(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	If https is not working, chances are the process has failed before DNS has propagated.
+
+	Deleting the TLS secret (along with resetting the autohttps pod) will restart the process.
+		"
+		return 0
+	fi
+
+	kubectl delete secret proxy-public-tls-acme
+}
+
+gjc_https_reset(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	If HTTPS is not working, resetting the services that create the certificates etc is necessary.
+
+	Usually, the initial failure is because the DNS records hadn't propagated when the
+	process was initiated.
+
+	So ... ensure that DNS has propagated before doing this.
+		"
+		return 0
+	fi
+
+	gjc_https_tls_secret_delete
+	gjc_utils_check_exit_code "Failed to delete the TLS secret" || return 1
+
+	gjc_https_pod_delete
+}
+
+# check if DNS record with ip address exists
+	# add DNS record with ipaddress (check exists first!)
+# modify config for HTTPS (yes/no) and loadBalancerIP address
+	# what happens if no HTTPS but IP address?
 
 # > Deploy the JupyterHub Chart Release
 
@@ -1461,16 +1533,47 @@ gjc_helm_jupyterhub_chart_version_get(){
 	cat $jupyterhub_chart_version_config_file | awk '/chart_version/ {print $2}'
 }
 
-gjc_helm_jupyterhub_chart_version_set(){
+gjc_helm_jupyterhub_chart_config_https_enabled_get(){
+	cat $jupyterhub_chart_version_config_file | awk '/https_enabled/ {print $2}'
+}
 
+gjc_helm_jupyterhub_chart_config_https_host_get(){
+	cat $jupyterhub_chart_version_config_file | awk '/https_host_domain/ {print $2}'
+}
+
+gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get(){
+	cat $jupyterhub_chart_version_config_file | awk '/lets_encrypt_contact_email/ {print $2}'
+}
+
+gjc_helm_jupyterhub_config_create(){
 	if [ "$1" = "-h" ]; then
 		printf "
-	Sets the chart version configured in the file jupyter_chart_config
+	Insert variables into the config template file (${helm_chart_config_template_file})
+	to create a full config file: ${helm_chart_config_file}
 		"
 		return 0
 	fi
 
-	echo "chart_version $1" > jupyterhub_chart_config
+	local https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
+	local https_host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	local lets_encrypt_contact=$(gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get)
+
+	gjc_utils_check_exit_code "Failed to retrieve variables for the config" || return 1
+
+	printf "\nWriting the following variables to the jupyterhub helm chart config:\n
+	local https_enabled ... ${gjc_fmt_raw}$https_enabled ${gjc_fmt_reset}
+	local https_host ... ${gjc_fmt_raw}$https_host ${gjc_fmt_reset}
+	local lets_encrypt_contact ... ${gjc_fmt_raw}$lets_encrypt_contact ${gjc_fmt_reset}\n\n"
+
+	sed "
+		s|HTTPS_ENABLED|$https_enabled|g
+		s|HTTPS_HOST_DOMAIN|$https_host|g
+		s|LETS_ENCRYPT_CONTACT_EMAIL|$lets_encrypt_contact|g
+		" \
+		config_template.yaml > config.yaml
+
+	gjc_utils_check_exit_code "Failed to write variables to config file" || return 1
+
 }
 
 gjc_helm_jupyterhub_chart_deploy(){
@@ -1490,9 +1593,11 @@ gjc_helm_jupyterhub_chart_deploy(){
 	local chart_version=$(gjc_helm_jupyterhub_chart_version_get)
 	local cluster_name=$(gjc_cluster_name_get)
 
-	echo "Using chart version $chart_version, and $helm_chart_config_file on cluster $cluster_name"
+	gjc_helm_jupyterhub_config_create
+
+	printf "\nUsing chart version $chart_version, and $helm_chart_config_file on cluster $cluster_name\n"
 	echo "... Waiting for 10 seconds ... cancel now if something is wrong"
-	sleep 10
+	sleep 10 || return 1
 	echo "Deploying ... you may want to run kb_pods_watch in another terminal to ... watch"
 
 	gjc_helm_jupyterhub_repo_add_update
@@ -1509,11 +1614,24 @@ gjc_helm_jupyterhub_chart_deploy(){
 gjc_cluster_url(){
 	if [ "$1" = "-h" ]; then
 		printf "
-	Doc string
+	Returns the url at which the jupyterhub server should be available
+
+	When no https is configured, the AWS DNS of the load balancer will be provided
+
+	If https is enabled, the domain listed in the config ($helm_chart_config_file) will be returned
 		"
 		return 0
 	fi
-	kubectl get svc proxy-public | awk 'NR > 1 {print $4}'
+
+	local https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
+
+	if [ "$https_enabled" = "true" ]; then
+		local url=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	else
+		local url=$(kubectl get svc proxy-public | awk 'NR > 1 {print $4}')
+	fi
+
+	echo $url
 }
 
 gjc_cluster_is_https(){
@@ -1555,22 +1673,22 @@ gjc_cluster_auth_admin_url(){
 	Makes a full URL for the cluster's authentication endpoints by using
 	gjc_cluster_url and adding a protocol and "/hub" at the end.
 
-	Optional args:
-		* url ... the cluster's url ... necessary when using HTTPS with a DNS record
-			the protocol and endpoints will be added.
-			If no url provided, the public URL will be used, which will
-			only work with no HTTPS
+	Uses jupyterhub config ($helm_chart_config_file) to determine whether
+	https is being used, and if so, what the domain/url is
 		"
 		return 0
 	fi
 
-	if [ "$1" = "" ]; then
-		local url_protocol="http://"
-		local url=$(gjc_cluster_url)
-	else
+	local https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
+
+	# setting the protocol
+	if [ "$https_enabled" = "true" ]; then
 		local url_protocol="https://"
-		local url=$1
+	else
+		local url_protocol="http://"
 	fi
+
+	local url=$(gjc_cluster_url)
 
 	# this hub is necessary for the authentication endpoints
 	# specifics are set by the API code in the cluster set up
@@ -1578,6 +1696,28 @@ gjc_cluster_auth_admin_url(){
 }
 
 # > Create Admin accounts (for NativeAuthenticator)
+
+gjc_cluster_https_curl_test(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Tests whether cURL has sufficient certificates for accessing our cluster
+	which has been certified with letsencrypt.
+
+	A problem here implies that the certificates that cURL uses need to be updated.
+		"
+		return 0
+	fi
+
+	curl https://letsencrypt.org -sS -o /dev/null
+	gjc_utils_check_exit_code "
+	${gjc_fmt_hd}cURL cannot access the cluster${gjc_fmt_reset}\n\n
+
+	Most likely problem (especially on macOS) is out of date certificates (since Sep 2021).
+	Try downloading new certs from ${gjc_fmt_raw}https://curl.se/docs/caextract.html${gjc_fmt_reset}
+	The new pem file will need to be placed at ${gjc_fmt_raw}/etc/ssl/cert.pem${gjc_fmt_reset}
+	... or ... its location declared by the env var ${gjc_fmt_raw}CURL_CA_BUNDLE${gjc_fmt_reset}
+	" || return 1
+}
 
 gjc_cluster_auth_admin_accounts_add(){
 	if [ "$1" = "-h" ]; then
@@ -1590,15 +1730,13 @@ gjc_cluster_auth_admin_accounts_add(){
 
 	Users can change their password (using the appropriate endpoint on the hub webpage)
 
-	Optional arg:
-		* url ... for when using HTTPS and a DNS record.
-			Passed directly to gjc_cluster_auth_admin_url.
+	The URL for the cluster's admin auth API endpoint is determined using gjc_cluster_auth_admin_url
 		"
 		return 0
 	fi
 
-	local hub_url=$(gjc_cluster_auth_admin_url $1)
-	printf "\n Using URL: $hub_url\n"
+	local hub_url=$(gjc_cluster_auth_admin_url)
+	printf "\n Using URL: $hub_url\n\n"
 	local admin_usernames=( $(gjc_cluster_admin_users_get) )
 	printf "\nFound ${#admin_usernames[@]} admin usernames from $helm_chart_config_file:\n"
 
@@ -1611,7 +1749,10 @@ gjc_cluster_auth_admin_accounts_add(){
 	read -s admin_pw
 
 	printf "\n ... waiting 10 seconds ... if something is wrong ... cancel now\n"
-	sleep 10
+	sleep 10 || return 1
+
+	gjc_cluster_https_curl_test
+	gjc_utils_check_exit_code "Failed curl test ... issue needs to be fixed, or certs updated" || return 1
 
 	for un in "${admin_usernames[@]}";
 		do curl \
@@ -1664,7 +1805,8 @@ gjc_cluster_tear_down(){
 	# need better than just sleeping
 	# ... check pods with kb_pods_list and move on only once none are left ...
 	printf "\nWaiting 180 seconds ... to allow cluster resources to shut down before deleting EFS\n"
-	sleep 180
+
+	sleep 180 || return 1 # exit function here as continuing too early could be bad
 
 	echo "Removing mount targets for EFS $efs_id"
 	mount_tgs=( $(aws efs describe-mount-targets \
@@ -1694,13 +1836,13 @@ gjc_cluster_tear_down(){
 	aws ec2 delete-security-group --group-id $sg_id
 	gjc_utils_check_exit_code "Failed to remove security group $sg_id" || return 1
 
+	# no error check for this as the existence of a policy depends on whether the autoscaler
+	# was set up
 	echo "Removing IAM policy used for autoscaling (the role to which it was attached should be removed along with the cluster)"
 	gjc_cluster_autoscaler_iam_policy_remove
 
 	echo "deleting the cluster"
 	eksctl delete cluster -n $cluster_name
-
-	# need to tear down IAM roles and policies for autoscaler?
 }
 
 
