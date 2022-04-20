@@ -1,0 +1,14 @@
+data:
+  mapUsers: |
+    - userarn: arn:aws:iam::863275378519:user/edschofield
+      username: ed
+      groups:
+        - system:masters
+    - userarn: arn:aws:iam::863275378519:user/errol
+      username: errol
+      groups:
+        - system:masters
+    - userarn: arn:aws:iam::863275378519:user/rob
+      username: rob
+      groups:
+        - system:masters

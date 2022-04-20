@@ -15,6 +15,8 @@ user_kubernetes_config_file='user_kubernetes_config'
 # user defined variables for the jupyterhub chart
 user_jupyterhub_chart_config_file='user_jupyterhub_chart_config'
 
+cluster_system_masters_config_file='cluster_aws-auth_mapUsers.yaml'
+
 base_node_group_name='base-ng'  # name of the initial nodegroup in the cluster
 # tag key for marking resources created specifically for the cluster
 cluster_resource_key='charmers-cluster-id'
@@ -67,7 +69,7 @@ gjc_tldr(){
 ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_info${gjc_fmt_reset} (check accounts and context)
 	* check user config files
-		- ${gjc_fmt_raw}$user_kubernetes_config_file${gjc_fmt_reset} (version of kubernetes)
+		- ${gjc_fmt_raw}$user_kubernetes_config_file${gjc_fmt_reset} (cluster parameters)
 		- ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} (jupyterhub parameters incl https)
 	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_autoscaler_create${gjc_fmt_reset}
@@ -76,7 +78,7 @@ ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_deploy${gjc_fmt_reset}
 	* IF using HTTPS:
 		- Get cluster's public url: ${gjc_fmt_fnc}gjc_cluster_proxy_public_url${gjc_fmt_reset}
-		- Add record to DNS
+		- Add record to DNS: $gjc_fmt_fnc}gjc_aws_hosted_zone_cname_record_add${gjc_fmt_reset}
 		- Ensure ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} contains host name
 		- Check DNS propagated: ${gjc_fmt_fnc}gjc_https_domain_check_address${gjc_fmt_reset}
 		- Once propagated, restart certification: ${gjc_fmt_fnc}gjc_https_reset${gjc_fmt_reset}
@@ -1232,7 +1234,7 @@ gjc_efs_create(){
 	local current_region=$(gjc_aws_region_default_print)
 	local cluster_name=$(gjc_cluster_name_get)
 
-	echo "Setting up EFS on cluster $cluster_name in $current_region"
+	echo "Setting up EFS on cluster ${gjc_fmt_raw}$cluster_name${gjc_fmt_reset} in ${gjc_fmt_raw}$current_region${gjc_fmt_reset}"
 
 	echo "Wating 10 seconds ... cancel now if something is wrong"
 	sleep 10 || return 1
@@ -1602,7 +1604,7 @@ gjc_https_domain_check_address(){
 	local dns_lookup_url
 
 	cluster_url=$(gjc_cluster_proxy_public_url)
-	jupyterhub_host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	jupyterhub_host=$(gjc_helm_jupyterhub_chart_config_https_fqdn_get)
 	dns_lookup_url=$(dig +short $jupyterhub_host | head -n 1)
 
 	printf "\n
@@ -1612,10 +1614,78 @@ gjc_https_domain_check_address(){
 	"
 }
 
-# check if DNS record with ip address exists
-	# add DNS record with ipaddress (check exists first!)
-# modify config for HTTPS (yes/no) and loadBalancerIP address
-	# what happens if no HTTPS but IP address?
+
+# >> Route 53 DNS records
+
+# set JSON string
+dns_record_change_json='{"Comment":"","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name": "DNSURL","Type":"CNAME","TTL":300,"ResourceRecords":[{"Value":"CLUSTERURL"}]}}]}'
+
+gjc_aws_hosted_zone_get_id(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Gets the id of the hosted zone for the domain listed in the
+	jupyterhub config: $user_jupyterhub_chart_config_file
+		"
+		return 0
+	fi
+
+	local domain
+	domain=$(gjc_helm_jupyterhub_chart_config_https_domain_get)
+	gjc_utils_check_exit_code "Failed to get domain from config" || return 1
+
+	# note the full-stop at the end of the domain variable ... necessary as they are at the end
+	# of the names AWS has for hosted zones (??)
+	aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.'].Id" --output text
+}
+
+gjc_aws_hosted_zone_record_change_json_make(){
+	# prefix hosted-zone
+
+	local host_name
+	local domain
+	local cluster_url
+	host_name=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	gjc_utils_check_exit_code "Failed to get host from config" || return 1
+	domain=$(gjc_helm_jupyterhub_chart_config_https_domain_get)
+	gjc_utils_check_exit_code "Failed to get domain from config" || return 1
+	cluster_url=$(gjc_cluster_proxy_public_url)
+	gjc_utils_check_exit_code "Failed to get cluster public proxy URL" || return 1
+
+	# json to be used to submit a change to route53
+	# UPSERTs a CNAME record
+	# note the full-stop at the end of the DNSURL ... that's necessary (I think),
+	# as AWS route53 has full-stops at the ends of the names of domains (?)
+	local dns_record_change='{"Comment":"","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name": "DNSURL.","Type":"CNAME","TTL":300,"ResourceRecords":[{"Value":"CLUSTERURL"}]}}]}'
+	local dns_url="$host_name.$domain"
+
+	echo $dns_record_change | sed "s/DNSURL/$dns_url/g;s/CLUSTERURL/$cluster_url/g"
+}
+
+gjc_aws_hosted_zone_cname_record_add(){
+
+	local hosted_zone_id
+	local change_json
+	local domain
+	hosted_zone_id=$(gjc_aws_hosted_zone_get_id)
+	gjc_utils_check_exit_code "Failed to get hosted zone id" || return 1
+	change_json=$(gjc_aws_hosted_zone_record_change_json_make)
+	gjc_utils_check_exit_code "Failed to make record change JSON" || return 1
+	domain=$(gjc_helm_jupyterhub_chart_config_https_domain_get)
+	gjc_utils_check_exit_code "Failed to get domain from config" || return 1
+
+	printf "\n
+	Changing records for domain ${gjc_fmt_raw}$domain${gjc_fmt_reset}
+	with JSON patch:\n${gjc_fmt_raw}$change_json${gjc_fmt_reset}
+	\n...wating 10 seconds ... cancel if something is wrong ...\n
+	"
+	sleep 10 || return 1
+
+	printf "\nChanging the records ...\n"
+
+	aws route53 change-resource-record-sets \
+		--hosted-zone-id "$hosted_zone_id" \
+		--change-batch "$change_json"
+}
 
 # > Deploy the JupyterHub Chart Release
 
@@ -1648,12 +1718,48 @@ gjc_helm_jupyterhub_chart_version_get(){
 }
 
 gjc_helm_jupyterhub_chart_config_https_enabled_get(){
-	cat $user_jupyterhub_chart_config_file | awk '/https_enabled/ {print $2}'
+	local enabled
+	enabled=$(cat $user_jupyterhub_chart_config_file | awk '/https_enabled/ {print $2}')
+	gjc_utils_check_variable_empty $enabled || return 1
+	echo $enabled
+}
+
+gjc_helm_jupyterhub_chart_config_https_domain_get(){
+	local domain
+	domain=$(cat $user_jupyterhub_chart_config_file | awk '/https_domain/ {print $2}')
+	gjc_utils_check_variable_empty $domain || return 1
+	echo $domain
 }
 
 gjc_helm_jupyterhub_chart_config_https_host_get(){
-	cat $user_jupyterhub_chart_config_file | awk '/https_host_domain/ {print $2}'
+	local host_name
+	host_name=$(cat $user_jupyterhub_chart_config_file | awk '/https_host/ {print $2}')
+	gjc_utils_check_variable_empty $host_name || return 1
+	echo $host_name
 }
+
+gjc_helm_jupyterhub_chart_config_https_fqdn_get(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Gets the \"Fully Qualified Domain Name\" for the cluster, according to the
+	configuration in $user_jupyterhub_chart_config_file.
+
+	Eg, hub.datacharmers.com
+		"
+		return 0
+	fi
+
+
+	local domain
+	local host
+	domain=$(gjc_helm_jupyterhub_chart_config_https_domain_get)
+	gjc_utils_check_exit_code "Failed to get domain from jupyterhub config" || return 1
+	host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	gjc_utils_check_exit_code "Failed to get host name from jupyterhub config" || return 1
+
+	echo "$host.$domain"
+}
+
 
 gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get(){
 	cat $user_jupyterhub_chart_config_file | awk '/lets_encrypt_contact_email/ {print $2}'
@@ -1673,11 +1779,11 @@ gjc_helm_jupyterhub_config_create(){
 	local lets_encrypt_contact
 
 	https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
-	gjc_utils_check_variable_empty https_enabled || return 1
-	https_host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
-	gjc_utils_check_variable_empty https_host || return 1
+	gjc_utils_check_variable_empty $https_enabled || return 1
+	https_host=$(gjc_helm_jupyterhub_chart_config_https_fqdn_get)
+	gjc_utils_check_exit_code "Failed to get cluster domain config" || return 1
 	lets_encrypt_contact=$(gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get)
-	gjc_utils_check_variable_empty lets_encrypt_contact || return 1
+	gjc_utils_check_variable_empty $lets_encrypt_contact || return 1
 
 	printf "\nWriting the following variables to the jupyterhub helm chart config:\n
 	local https_enabled ... ${gjc_fmt_raw}$https_enabled${gjc_fmt_reset}
@@ -1745,7 +1851,10 @@ gjc_cluster_proxy_public_url(){
 		"
 		return 0
 	fi
-	kubectl get svc proxy-public | awk 'NR > 1 {print $4}'
+	local url
+	url=$(kubectl get svc proxy-public | awk 'NR > 1 {print $4}')
+	gjc_utils_check_variable_empty $url || return 1
+	echo $url
 }
 
 gjc_cluster_url(){
@@ -1763,7 +1872,7 @@ gjc_cluster_url(){
 	local https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
 
 	if [ "$https_enabled" = "true" ]; then
-		local url=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+		local url=$(gjc_helm_jupyterhub_chart_config_https_fqdn_get)
 	else
 		local url=$(gjc_cluster_proxy_public_url)
 	fi
@@ -1771,12 +1880,7 @@ gjc_cluster_url(){
 	echo $url
 }
 
-gjc_cluster_is_https(){
-	printf "\nCrude of checking whether cluster is HTTPS secured is to check for a pod autohttps\n"
-	printf "\nSearched for such pods:...\n"
-
-	kb_pods_list | awk '/https/ {print $1}'
-}
+# >> admin users
 
 gjc_cluster_admin_users_get(){
 	if [ "$1" = "-h" ]; then
@@ -1901,6 +2005,32 @@ gjc_cluster_auth_admin_accounts_add(){
 	done
 }
 
+
+gjc_cluster_system_masters_add(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	Add system masters (ie admins) to the cluster from file ($cluster_system_masters_config_file)
+		"
+		return 0
+	fi
+
+	printf "\nPatching the admin users with config in ${gjc_fmt_raw}$cluster_system_masters_config_file:\n\n
+${gjc_fmt_reset}
+$(cat $cluster_system_masters_config_file)
+	"
+
+	printf "\nAre you sure (yes/no) ? "
+	read response
+
+	if [ "$response" != "yes" ]; then
+		return 0
+	fi
+
+	kubectl patch configmap aws-auth -n kube-system \
+		--patch-file "$cluster_system_masters_config_file"
+}
+
+# > Tear down
 
 gjc_cluster_tear_down(){
 	if [ "$1" = "-h" ]; then
