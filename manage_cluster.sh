@@ -68,6 +68,7 @@ gjc_tldr(){
 	printf "
 ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_info${gjc_fmt_reset} (check accounts and context)
+	* If needed, add pre-existing cluster: ${gjc_fmt_fnc}gjc_cluster_conifg_add${gjc_fmt_reset}
 	* check user config files
 		- ${gjc_fmt_raw}$user_kubernetes_config_file${gjc_fmt_reset} (cluster parameters)
 		- ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} (jupyterhub parameters incl https)
@@ -433,6 +434,29 @@ kb_scale_replicas(){
 }
 
 # > eksctl functions
+
+gjc_cluster_config_add(){
+	if [ "$1" = "-h" ]; then
+		printf "
+	If a cluster has already been setup by another person and you have admin rights ...
+	* use gjc_cluster_list to list available clusters (this will depend your current aws profile)
+	* run this function with the name of the relevant cluster as the first positional argument
+
+	The kubectl config at ${gjc_fmt_raw}~/.kube/config${gjc_fmt_reset} will have the necessary
+	parameters added for administering the cluster
+
+	${gjc_fmt_hd}Note:${gjc_fmt_reset} this function should merge the necessary parameters into any pre-existing kubectl
+	config file.  But, as a precaution, the existing config file is copied to a backup named with
+	the date and time of the backup.
+		"
+		return 0
+	fi
+
+	printf "\nCreating backup of kubectl config file\n"
+	cp ~/.kube/config ~/.kube/config_backup_$(date +'%Y-%m-%d-%H-%M-%S')
+
+	eksctl utils write-kubeconfig --cluster $1
+}
 
 gjc_cluster_create(){
 
@@ -2015,7 +2039,7 @@ gjc_cluster_system_masters_add(){
 	fi
 
 	printf "\nPatching the admin users with config in ${gjc_fmt_raw}$cluster_system_masters_config_file:\n\n
-${gjc_fmt_reset}
+	${gjc_fmt_reset}
 $(cat $cluster_system_masters_config_file)
 	"
 
