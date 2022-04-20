@@ -1,0 +1,9 @@
+# use major and minor version only, no patch version
+cluster_kubernetes_version 1.20
+
+# comma separated list of AZs
+# MUST be AVAILABLE in the default region of the active AWS profile
+cluster_availability_zones ap-southeast-2a,ap-southeast-2b,ap-southeast-2c
+
+# availability zone for the base nodegroup in which jupyterhub nodes will be created
+node_availability_zones ap-southeast-2a

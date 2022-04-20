@@ -11,7 +11,7 @@
 # version of kubernetes on the cluster
 # range of acceptable versions depends on the versions of kubectl and eksctl installed
 # as well as what AWS EKS supports
-user_kubernetes_version_config_file='user_kubernetes_version_config'
+user_kubernetes_config_file='user_kubernetes_config'
 # user defined variables for the jupyterhub chart
 user_jupyterhub_chart_config_file='user_jupyterhub_chart_config'
 
@@ -50,7 +50,7 @@ gjc_fmt_hd=${gjc_fmt_undln}${gjc_fmt_bold}
 
 gjc_globals_print(){
 	printf "\n${gjc_fmt_hd}Globals${gjc_fmt_reset}:\n"
-	printf "\nkubernetes_version_config: \t\t$user_kubernetes_version_config_file"
+	printf "\nkubernetes_version_config: \t\t$user_kubernetes_config_file"
 	printf "\nbase_node_group_name: \t\t\t$base_node_group_name"
 	printf "\ncluster_resource_key: \t\t\t$cluster_resource_key"
 	printf "\nhelm_chart_config_file: \t\t$helm_chart_config_file"
@@ -67,7 +67,7 @@ gjc_tldr(){
 ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_info${gjc_fmt_reset} (check accounts and context)
 	* check user config files
-		- ${gjc_fmt_raw}$user_kubernetes_version_config_file${gjc_fmt_reset} (version of kubernetes)
+		- ${gjc_fmt_raw}$user_kubernetes_config_file${gjc_fmt_reset} (version of kubernetes)
 		- ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} (jupyterhub parameters incl https)
 	* ${gjc_fmt_fnc}gjc_cluster_create${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_autoscaler_create${gjc_fmt_reset}
@@ -75,10 +75,12 @@ ${gjc_fmt_hd}TL;DR:${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_efs_deploy${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_helm_jupyterhub_chart_deploy${gjc_fmt_reset}
 	* IF using HTTPS:
-		- ${gjc_fmt_fnc}gjc_cluster_proxy_public_url${gjc_fmt_reset} (get public URL)
+		- Get cluster's public url: ${gjc_fmt_fnc}gjc_cluster_proxy_public_url${gjc_fmt_reset}
 		- Add record to DNS
 		- Ensure ${gjc_fmt_raw}$user_jupyterhub_chart_config_file${gjc_fmt_reset} contains host name
-		- ${gjc_fmt_fnc}gjc_https_reset${gjc_fmt_reset} (once DNS propagated, restart letsencrypt process)
+		- Check DNS propagated: ${gjc_fmt_fnc}gjc_https_domain_check_address${gjc_fmt_reset}
+		- Once propagated, restart certification: ${gjc_fmt_fnc}gjc_https_reset${gjc_fmt_reset}
+		- check https logs for errors: ${gjc_fmt_fnc}gjc_https_pod_logs${gjc_fmt_reset}, ${gjc_fmt_fnc}gjc_https_pod_secret_sync_logs${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_auth_admin_accounts_add${gjc_fmt_reset}
 	* ${gjc_fmt_fnc}gjc_cluster_tear_down${gjc_fmt_reset} (tear down and delete cluster)
 	"
@@ -168,6 +170,10 @@ gjc_info(){
 	gjc_depends
 }
 
+# > Utility functions
+
+# >> Error checking or handling
+
 # checks exit code
 # if not 0, prints out message (first arg) and returns "1" exit code
 # use after commands whose errors you want to catch:
@@ -192,18 +198,44 @@ gjc_utils_check_exit_code(){
 
 }
 
-# > kubernetes version
+# Returns a non-zero exit code when variable is empty
+# useful for enabling simple variable retrieval functions to have meaningful exit codes
+gjc_utils_check_variable_empty(){
+	if [ "$1" = "" ]; then
+		return 1
+	fi
+}
+
+# > kubernetes config variables
 
 gjc_kubernetes_version_get(){
 	if [ "$1" = "-h" ]; then
 		printf "
-	What version of kubernetes to use derived from config file $user_kubernetes_version_config_file
+	What version of kubernetes to use derived from config file $user_kubernetes_config_file
 		"
 		return 0
 	fi
+	local vers
+	vers=$(cat $user_kubernetes_config_file | awk '/cluster_kubernetes_version/ {print $2}')
+	gjc_utils_check_variable_empty $vers || return 1
 
-	cat $user_kubernetes_version_config_file | awk '/cluster_kubernetes_version/ {print $2}'
+	echo $vers
+}
 
+gjc_kubernetes_cluster_azs_get(){
+	local azs
+	azs=$(cat $user_kubernetes_config_file | awk '/cluster_availability_zones/ {print $2}')
+	gjc_utils_check_variable_empty $azs || return 1
+
+	echo $azs
+}
+
+gjc_kubernetes_node_azs_get(){
+	local azs
+	azs=$(cat $user_kubernetes_config_file | awk '/node_availability_zones/ {print $2}')
+	gjc_utils_check_variable_empty $azs || return 1
+
+	echo $azs
 }
 
 
@@ -487,9 +519,17 @@ If no args are provided, they'll be prompted for:
 	sleep 10 || return 1
 
 	printf "\n ... lets rock!  \nCan take ~30 minutes!\n"
-
-	local kubernetes_version=$(gjc_kubernetes_version_get)
+	# set local first so as to not interrupt "flow" of exit codes
+	local kubernetes_version
+	local cluster_azs
+	local node_azs
+	kubernetes_version=$(gjc_kubernetes_version_get)
 	gjc_utils_check_exit_code "Failed to get version from config" || return 1
+	cluster_azs=$(gjc_kubernetes_cluster_azs_get)
+	gjc_utils_check_exit_code "Failed to get cluster availability zones" || return 1
+	node_azs=$(gjc_kubernetes_node_azs_get)
+	gjc_utils_check_exit_code "Failed to get node availability zones" || return 1
+
 	printf "\nCreating a cluster with kubernetes v$kubernetes_version\n"
 
 	# Note ... using --asg-access ... helps setup autoscaling ... ?
@@ -499,7 +539,10 @@ If no args are provided, they'll be prompted for:
 		--node-type $node_type \
 		--nodes 1 \
 		--nodes-min 1 \
-		--nodes-max $max_n_nodes && \
+		--nodes-max $max_n_nodes \
+		--zones "$cluster_azs" \
+		--node-zones "$node_azs" \
+		&& \
 		# >> Using namespace for easier automation
 		# IMPORTANT ... use the namespace in the context to record the name of the cluster
 		# this is then used as a tag on all associated resources
@@ -790,8 +833,13 @@ gjc_cluster_autoscaler_iam_policy_name(){
 		return 0
 	fi
 
+	if [ "$1" != "" ]; then
+		local cluster_name=$1
+	else
+		local cluster_name=$(gjc_cluster_name_get)
+	fi
+
 	local cluster_autoscaler_policy_name="AmazonEKSClusterAutoscalerPolicy"
-	local cluster_name=$(gjc_cluster_name_get)
 	echo "$cluster_autoscaler_policy_name-$cluster_name"
 }
 
@@ -811,6 +859,8 @@ gjc_cluster_autoscaler_iam_policy_create(){
 	fi
 
 	local policy_name=$(gjc_cluster_autoscaler_iam_policy_name)
+
+	# the "file://" is necessary for aws CLI for some reason
 	aws iam create-policy \
 		--policy-name $policy_name \
 		--policy-document "file://$cluster_autoscaler_policy_config_file"
@@ -820,10 +870,16 @@ gjc_cluster_autoscaler_iam_policy_get_arn(){
 	if [ "$1" = "-h" ]; then
 		printf "
 	Gets arn of iam policy created for autoscaling with name $cluster_autoscaler_policy_name-CLUSTER_NAME
+
+	Optional positional arg: cluster_name
+		For when the policy is being removed after the cluster may have been taken down.
+		The (former) cluster name can be passed in explicitly.
+		It is passed through to gjc_cluster_autoscaler_iam_policy_name
 		"
 		return 0
 	fi
-	local policy_name=$(gjc_cluster_autoscaler_iam_policy_name)
+
+	local policy_name=$(gjc_cluster_autoscaler_iam_policy_name $1)
 	aws iam list-policies \
 		--query "Policies[?contains(PolicyName, '$policy_name')].Arn" \
 		--output text
@@ -834,10 +890,15 @@ gjc_cluster_autoscaler_iam_policy_remove(){
 		printf "
 	Remove iam policy with name $cluster_autoscaler_policy_name-CLUSTER_NAME, which would have been
 	created by this script for autoscaling on the cluster
+
+	Optional positional arg: cluster_name
+		For when the cluster has been torn down and the (former) name is best provided explicitly
+		Passed on to gjc_cluster_autoscaler_iam_policy_get_arn
 		"
 		return 0
 	fi
-	local policy_arn=$(gjc_cluster_autoscaler_iam_policy_get_arn)
+
+	local policy_arn=$(gjc_cluster_autoscaler_iam_policy_get_arn $1)
 	gjc_utils_check_exit_code "Failed to get policy arn" || return 1
 
 	aws iam delete-policy \
@@ -1489,11 +1550,11 @@ gjc_https_pod_delete(){
 }
 
 gjc_https_pod_logs(){
-	kubectl logs -f $(gjc_https_pod_name_get) -c secret-sync
+	kubectl logs -f $(gjc_https_pod_name_get) -c traefik
 }
 
-gjc_https_pod_traefik_logs(){
-	kubectl logs -f $(gjc_https_pod_name_get) -c traefik
+gjc_https_pod_secret_sync_logs(){
+	kubectl logs -f $(gjc_https_pod_name_get) -c secret-sync
 }
 
 gjc_https_tls_secret_get(){
@@ -1509,6 +1570,9 @@ gjc_https_tls_secret_delete(){
 		"
 		return 0
 	fi
+
+	# if https has failed, then the secret won't exist ... so exit gracefully
+	gjc_https_tls_secret_get 2>/dev/null || echo "TLS secret not found in cluster ... https probably not set up" && return 0
 
 	kubectl delete secret proxy-public-tls-acme
 }
@@ -1530,6 +1594,22 @@ gjc_https_reset(){
 	gjc_utils_check_exit_code "Failed to delete the TLS secret" || return 1
 
 	gjc_https_pod_delete
+}
+
+gjc_https_domain_check_address(){
+	local cluster_url
+	local jupyterhub_host
+	local dns_lookup_url
+
+	cluster_url=$(gjc_cluster_proxy_public_url)
+	jupyterhub_host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	dns_lookup_url=$(dig +short $jupyterhub_host | head -n 1)
+
+	printf "\n
+	cluster public url:\t${gjc_fmt_raw}$cluster_url${gjc_fmt_reset}
+	DNS lookup url:\t\t${gjc_fmt_raw}$dns_lookup_url${gjc_fmt_reset}
+	(from $jupyterhub_host)
+	"
 }
 
 # check if DNS record with ip address exists
@@ -1588,16 +1668,21 @@ gjc_helm_jupyterhub_config_create(){
 		return 0
 	fi
 
-	local https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
-	local https_host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
-	local lets_encrypt_contact=$(gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get)
+	local https_enabled
+	local https_host
+	local lets_encrypt_contact
 
-	gjc_utils_check_exit_code "Failed to retrieve variables for the config" || return 1
+	https_enabled=$(gjc_helm_jupyterhub_chart_config_https_enabled_get)
+	gjc_utils_check_variable_empty https_enabled || return 1
+	https_host=$(gjc_helm_jupyterhub_chart_config_https_host_get)
+	gjc_utils_check_variable_empty https_host || return 1
+	lets_encrypt_contact=$(gjc_helm_jupyterhub_chart_config_lets_encrypt_contact_get)
+	gjc_utils_check_variable_empty lets_encrypt_contact || return 1
 
 	printf "\nWriting the following variables to the jupyterhub helm chart config:\n
-	local https_enabled ... ${gjc_fmt_raw}$https_enabled ${gjc_fmt_reset}
-	local https_host ... ${gjc_fmt_raw}$https_host ${gjc_fmt_reset}
-	local lets_encrypt_contact ... ${gjc_fmt_raw}$lets_encrypt_contact ${gjc_fmt_reset}\n\n"
+	local https_enabled ... ${gjc_fmt_raw}$https_enabled${gjc_fmt_reset}
+	local https_host ... ${gjc_fmt_raw}$https_host${gjc_fmt_reset}
+	local lets_encrypt_contact ... ${gjc_fmt_raw}$lets_encrypt_contact${gjc_fmt_reset}\n\n"
 
 	sed "
 		s|HTTPS_ENABLED|$https_enabled|g
@@ -1628,11 +1713,15 @@ gjc_helm_jupyterhub_chart_deploy(){
 	local cluster_name=$(gjc_cluster_name_get)
 
 	gjc_helm_jupyterhub_config_create
+	gjc_utils_check_exit_code "Failed to create appropriately jupyterhub config" || return 1
 
-	printf "\nUsing chart version $chart_version, and $helm_chart_config_file on cluster $cluster_name\n"
-	echo "... Waiting for 10 seconds ... cancel now if something is wrong"
+	printf "\nUsing chart version ${gjc_fmt_raw}$chart_version${gjc_fmt_reset}, and
+	${gjc_fmt_raw}$helm_chart_config_file${gjc_fmt_reset}
+	on cluster ${gjc_fmt_raw}$cluster_name${gjc_fmt_reset}\n"
+
+	printf "\n... Waiting for 10 seconds ... cancel now if something is wrong"
 	sleep 10 || return 1
-	echo "Deploying ... you may want to run kb_pods_watch in another terminal to ... watch"
+	print "\nDeploying ... \nyou may want to run kb_pods_watch in another terminal to ... watch\n"
 
 	gjc_helm_jupyterhub_repo_add_update
 	gjc_utils_check_exit_code "Failed to update helm repo" || return 1
@@ -1886,11 +1975,16 @@ gjc_cluster_tear_down(){
 
 	# no error check for this as the existence of a policy depends on whether the autoscaler
 	# was set up
-	echo "Removing IAM policy used for autoscaling (the role to which it was attached should be removed along with the cluster)"
-	gjc_cluster_autoscaler_iam_policy_remove
 
 	echo "deleting the cluster"
 	eksctl delete cluster -n $cluster_name
+
+	printf "\nWaiting 60 seconds ... to allow cluster resources to be terminated"
+	sleep 60
+	# doing this last as it tends to fail while the cluster's resources are still running
+	# and the policy is still attached to some of them
+	echo "Removing IAM policy used for autoscaling (the role to which it was attached should be removed along with the cluster)"
+	gjc_cluster_autoscaler_iam_policy_remove $cluster_name
 }
 
 
